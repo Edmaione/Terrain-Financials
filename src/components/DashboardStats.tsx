@@ -55,23 +55,23 @@ export default function DashboardStats({
   ]
 
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {stats.map((stat) => {
         const Icon = stat.icon
         return (
-          <Card key={stat.name} className="p-6">
+          <Card key={stat.name} className="p-5">
             <div className="flex items-center justify-between">
               <div
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold ${stat.iconTone}`}
+                className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.iconTone}`}
               >
-                <Icon className="h-5 w-5" />
+                <Icon className="h-[18px] w-[18px]" />
               </div>
             </div>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="mt-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">
               {stat.name}
             </p>
-            <p className={`mt-2 text-2xl font-semibold ${stat.tone}`}>{stat.value}</p>
-            <p className="mt-2 text-xs text-slate-500">{stat.helper}</p>
+            <p className={`mt-1.5 text-xl font-semibold ${stat.tone}`}>{stat.value}</p>
+            <p className="mt-1 text-xs text-slate-500">{stat.helper}</p>
           </Card>
         )
       })}

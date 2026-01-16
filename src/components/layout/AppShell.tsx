@@ -16,14 +16,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-slate-100">
-        <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 border-r border-slate-200/70 bg-white lg:block">
+      <div className="min-h-screen bg-slate-50">
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200/50 bg-white lg:block">
           <SidebarNav />
         </aside>
 
-        <div className="lg:pl-72">
+        <div className="lg:pl-64">
           <TopBar onMenuClick={() => setMobileOpen(true)} />
-          <main className="px-4 pb-12 pt-8 lg:px-8">{children}</main>
+          <main className="px-4 pb-12 pt-6 lg:px-8">{children}</main>
         </div>
 
         {mobileOpen && (
@@ -32,7 +32,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               className="absolute inset-0 bg-slate-900/40"
               onClick={() => setMobileOpen(false)}
             />
-            <div className="absolute inset-y-0 left-0 w-72 bg-white shadow-xl">
+            <div className="absolute inset-y-0 left-0 w-64 bg-white shadow-xl">
               <SidebarNav onNavigate={() => setMobileOpen(false)} />
             </div>
           </div>

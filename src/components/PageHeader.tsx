@@ -17,14 +17,14 @@ export default function PageHeader({
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {displayLabel && (
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">
             {displayLabel}
           </p>
         )}
-        <h1 className="text-3xl font-semibold text-slate-900 md:text-4xl">{title}</h1>
-        {description && <p className="text-sm text-slate-500 md:text-base">{description}</p>}
+        <h1 className="text-2xl font-semibold text-slate-900 md:text-3xl">{title}</h1>
+        {description && <p className="text-sm text-slate-500">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
