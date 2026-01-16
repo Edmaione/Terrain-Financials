@@ -1,169 +1,203 @@
-import { supabaseAdmin } from '@/lib/supabase';
-import { parseDateRange } from '@/lib/date-utils';
-import TransactionTable from '@/components/TransactionTable';
-import TransactionFilters from '@/components/TransactionFilters';
+import { supabaseAdmin } from '@/lib/supabase'
+import TransactionTable from '@/components/TransactionTable'
+import TransactionsFilters from '@/components/TransactionsFilters'
 
-interface SearchParams {
-  reviewed?: string;
-  range?: string;
-  start?: string;
-  end?: string;
-  search?: string;
+export const dynamic = 'force-dynamic'
+
+type DateRange = {
+  start?: string
+  end?: string
+  label: string
 }
 
-async function getTransactions(searchParams: SearchParams) {
-  try {
-    // Parse date range (default to last_3_months)
-    const dateRange = parseDateRange(
-      searchParams.range || 'last_3_months',
-      searchParams.start,
-      searchParams.end
-    );
+function toDateString(date: Date) {
+  return date.toISOString().split('T')[0]
+}
 
-    // Build base query
-    let query = supabaseAdmin
-      .from('transactions')
-      .select('*')
-      .gte('date', dateRange.startDate)
-      .lte('date', dateRange.endDate)
-      .order('date', { ascending: false });
+function getDateRange(range: string, start?: string, end?: string): DateRange {
+  const now = new Date()
 
-    // Apply reviewed filter
-    if (searchParams.reviewed === 'true') {
-      query = query.eq('reviewed', true);
-    } else if (searchParams.reviewed === 'false') {
-      query = query.eq('reviewed', false);
+  switch (range) {
+    case 'last_month': {
+      const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const endDate = new Date(now.getFullYear(), now.getMonth(), 0)
+      return { start: toDateString(startDate), end: toDateString(endDate), label: 'Last Month' }
     }
-
-    // Apply search filter
-    if (searchParams.search) {
-      query = query.or(
-        `payee.ilike.%${searchParams.search}%,description.ilike.%${searchParams.search}%`
-      );
+    case 'last_3_months': {
+      const startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1)
+      return { start: toDateString(startDate), end: toDateString(now), label: 'Last 3 Months' }
     }
-
-    // Fetch transactions
-    const { data: transactions, error: txError } = await query;
-
-    if (txError) {
-      console.error('[Transactions] Query error:', txError);
-      throw new Error(`Failed to fetch transactions: ${txError.message}`);
+    case 'ytd': {
+      const startDate = new Date(now.getFullYear(), 0, 1)
+      return { start: toDateString(startDate), end: toDateString(now), label: 'Year to Date' }
     }
-
-    if (!transactions || transactions.length === 0) {
-      return { transactions: [], total: 0 };
+    case 'all': {
+      return { label: 'All Time' }
     }
-
-    // Collect all unique IDs for batch fetching related data
-    const accountIds = [...new Set(transactions.map((t) => t.account_id))];
-    const categoryIds = [
-      ...new Set(
-        transactions
-          .map((t) => [t.category_id, t.ai_suggested_category])
-          .flat()
-          .filter(Boolean) as string[]
-      ),
-    ];
-
-    // Batch fetch accounts
-    const { data: accounts } = await supabaseAdmin
-      .from('accounts')
-      .select('id, name, type')
-      .in('id', accountIds);
-
-    // Batch fetch categories (including AI suggested)
-    const { data: categories } = await supabaseAdmin
-      .from('categories')
-      .select('id, name, section, type')
-      .in('id', categoryIds);
-
-    // Create lookup maps
-    const accountMap = new Map(accounts?.map((a) => [a.id, a]) || []);
-    const categoryMap = new Map(categories?.map((c) => [c.id, c]) || []);
-
-    // Enrich transactions with joined data
-    const enrichedTransactions = transactions.map((tx) => ({
-      ...tx,
-      account: tx.account_id ? accountMap.get(tx.account_id) : null,
-      category: tx.category_id ? categoryMap.get(tx.category_id) : null,
-      ai_suggested: tx.ai_suggested_category
-        ? categoryMap.get(tx.ai_suggested_category)
-        : null,
-    }));
-
-    return {
-      transactions: enrichedTransactions,
-      total: enrichedTransactions.length,
-    };
-  } catch (error) {
-    console.error('[Transactions] Fatal error:', error);
-    return {
-      transactions: [],
-      total: 0,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    case 'custom': {
+      if (start && end) {
+        return { start, end, label: 'Custom Range' }
+      }
+      return { start: toDateString(new Date(now.getFullYear(), now.getMonth(), 1)), end: toDateString(now), label: 'This Month' }
+    }
+    case 'this_month':
+    default: {
+      const startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+      return { start: toDateString(startDate), end: toDateString(now), label: 'This Month' }
+    }
   }
+}
+
+async function getTransactions({
+  reviewed,
+  range,
+  start,
+  end,
+}: {
+  reviewed?: string
+  range: string
+  start?: string
+  end?: string
+}) {
+  const debugDataFlow = process.env.DEBUG_DATA_FLOW === 'true'
+  const dateRange = getDateRange(range, start, end)
+
+  let query = supabaseAdmin
+    .from('transactions')
+    .select(`
+      *,
+      account:accounts!transactions_account_id_fkey(name),
+      transfer_to_account:accounts!transactions_transfer_to_account_id_fkey(name),
+      category:categories!category_id(name, section),
+      ai_suggested:categories!ai_suggested_category(name, section)
+    `)
+    .order('date', { ascending: false })
+
+  if (reviewed === 'false') {
+    query = query.eq('reviewed', false)
+  }
+  if (reviewed === 'true') {
+    query = query.eq('reviewed', true)
+  }
+  if (dateRange.start) {
+    query = query.gte('date', dateRange.start)
+  }
+  if (dateRange.end) {
+    query = query.lte('date', dateRange.end)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    console.error('Error fetching transactions:', error)
+    return { data: [], error, dateRange }
+  }
+
+  if (debugDataFlow) {
+    console.info('[data-flow] Transactions fetched', {
+      reviewedFilter: reviewed,
+      range,
+      dateRange,
+      count: data?.length || 0,
+    })
+  }
+
+  return { data: data || [], error: null, dateRange }
+}
+
+async function getCategories() {
+  const { data, error } = await supabaseAdmin
+    .from('categories')
+    .select('id, name, section')
+    .order('section', { ascending: true })
+    .order('name', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching categories:', error)
+    return []
+  }
+
+  return data || []
 }
 
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams: { reviewed?: string; range?: string; start?: string; end?: string }
 }) {
-  const { transactions, total, error } = await getTransactions(searchParams);
+  const activeRange = searchParams.range ?? 'this_month'
+  const allTimeParams = new URLSearchParams()
+  if (searchParams.reviewed) {
+    allTimeParams.set('reviewed', searchParams.reviewed)
+  }
+  allTimeParams.set('range', 'all')
+  const { data: transactions, error, dateRange } = await getTransactions({
+    reviewed: searchParams.reviewed,
+    range: activeRange,
+    start: searchParams.start,
+    end: searchParams.end,
+  })
+  const categories = await getCategories()
+
+  const lastUpdated = new Date().toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  const filterSummary = `${dateRange.label}${searchParams.reviewed ? ` · ${searchParams.reviewed === 'true' ? 'Reviewed' : 'Unreviewed'}` : ' · All statuses'}`
+  const showDebugPanel = process.env.DEBUG_DATA_FLOW === 'true'
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          {searchParams.reviewed === 'false'
-            ? 'Review and categorize transactions'
-            : searchParams.reviewed === 'true'
-            ? 'Reviewed transactions'
-            : 'All transactions'}
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-semibold text-slate-900">Transactions</h1>
+        <p className="text-sm text-slate-500">
+          Review, categorize, and understand every transaction across your accounts.
         </p>
       </div>
 
+      <TransactionsFilters
+        reviewed={searchParams.reviewed}
+        range={activeRange}
+        startDate={dateRange.start}
+        endDate={dateRange.end}
+        lastUpdated={lastUpdated}
+      />
+
       {error && (
-        <div className="card border-l-4 border-red-400 bg-red-50">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg
-                className="h-5 w-5 text-red-400"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                  clipRule="evenodd"
-                />
-              </svg>
+        <div className="card border border-red-200 bg-red-50 text-red-900">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold">We couldn&apos;t load transactions.</h2>
+              <p className="text-sm text-red-700">
+                Please try again or refresh the page. If the issue persists, check the error details below.
+              </p>
             </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">
-                Error loading transactions
-              </h3>
-              <p className="mt-1 text-sm text-red-700">{error}</p>
-            </div>
+          </div>
+          <details className="mt-3 text-xs text-red-800">
+            <summary className="cursor-pointer font-medium">Error details</summary>
+            <pre className="mt-2 whitespace-pre-wrap">{JSON.stringify(error, null, 2)}</pre>
+          </details>
+        </div>
+      )}
+
+      {showDebugPanel && (
+        <div className="card border-dashed border border-slate-200 bg-slate-50 text-xs text-slate-600">
+          <div className="font-semibold text-slate-700">Data Health</div>
+          <div className="mt-2 grid gap-1 sm:grid-cols-2">
+            <div>Reviewed filter: {searchParams.reviewed ?? 'all'}</div>
+            <div>Date range: {dateRange.start ?? '—'} → {dateRange.end ?? '—'}</div>
+            <div>Range preset: {activeRange}</div>
+            <div>Returned rows: {transactions.length}</div>
           </div>
         </div>
       )}
 
-      <TransactionFilters
-        currentReviewed={searchParams.reviewed}
-        currentRange={searchParams.range || 'last_3_months'}
-        currentSearch={searchParams.search}
+      <TransactionTable
+        transactions={transactions}
+        filterSummary={filterSummary}
+        allTimeHref={`/transactions?${allTimeParams.toString()}`}
+        categories={categories}
       />
-
-      {total > 0 && (
-        <div className="text-sm text-gray-500">
-          Showing {total} transaction{total !== 1 ? 's' : ''}
-        </div>
-      )}
-
-      <TransactionTable transactions={transactions} />
     </div>
   );
 }

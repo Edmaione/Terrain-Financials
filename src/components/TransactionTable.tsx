@@ -1,333 +1,375 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
-import CategorySelect from './CategorySelect';
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
-interface TransactionTableProps {
-  transactions: any[];
-}
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+})
+
+const dateFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+})
 
 export default function TransactionTable({
   transactions,
-}: TransactionTableProps) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [processing, setProcessing] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<{
-    [key: string]: string;
-  }>({});
+  filterSummary,
+  allTimeHref = '/transactions?range=all',
+  categories,
+}: {
+  transactions: any[]
+  filterSummary: string
+  allTimeHref?: string
+  categories: Array<{ id: string; name: string; section?: string | null }>
+}) {
+  const [processing, setProcessing] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [openCategoryFor, setOpenCategoryFor] = useState<string | null>(null)
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
+  const router = useRouter()
 
-  const handleApproveWithAI = async (
-    transactionId: string,
-    aiCategoryId: string
-  ) => {
-    setProcessing(transactionId);
-    setError(null);
+  useEffect(() => {
+    if (!errorMessage) return
+    const timeout = window.setTimeout(() => setErrorMessage(null), 5000)
+    return () => window.clearTimeout(timeout)
+  }, [errorMessage])
+
+  const filteredTransactions = useMemo(() => {
+    if (!searchQuery.trim()) return transactions
+    const query = searchQuery.toLowerCase()
+    return transactions.filter((transaction) => {
+      const haystack = [
+        transaction.payee,
+        transaction.description,
+        transaction.account?.name,
+        transaction.transfer_to_account?.name,
+        transaction.category?.name,
+        transaction.ai_suggested?.name,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(query)
+    })
+  }, [searchQuery, transactions])
+
+  const handleApprove = async ({
+    transactionId,
+    categoryId,
+    markReviewed,
+  }: {
+    transactionId: string
+    categoryId?: string | null
+    markReviewed?: boolean
+  }) => {
+    setProcessing(transactionId)
+    setErrorMessage(null)
 
     try {
+      const payload: Record<string, unknown> = {
+        markReviewed: markReviewed ?? true,
+      }
+      if (categoryId !== undefined) {
+        payload.categoryId = categoryId
+      }
       const response = await fetch(`/api/transactions/${transactionId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category_id: aiCategoryId }),
-      });
+        body: JSON.stringify(payload),
+      })
 
-      const result = await response.json();
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || 'Failed to approve transaction');
+      let responsePayload: unknown = null
+      try {
+        responsePayload = await response.json()
+      } catch (parseError) {
+        responsePayload = await response.text()
       }
 
-      // Refresh the page data
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      console.error('[TransactionTable] Approve error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to approve');
+      if (!response.ok || (typeof responsePayload === 'object' && responsePayload && 'ok' in responsePayload && !(responsePayload as { ok: boolean }).ok)) {
+        console.error('Approve request failed', {
+          transactionId,
+          status: response.status,
+          payload: responsePayload,
+        })
+        const errorText =
+          typeof responsePayload === 'object' && responsePayload && 'error' in responsePayload
+            ? String((responsePayload as { error?: string }).error)
+            : 'Failed to approve transaction.'
+        setErrorMessage(errorText)
+        window.alert(errorText)
+        return
+      }
+
+      setOpenCategoryFor(null)
+      setSelectedCategoryId('')
+      router.refresh()
+    } catch (error) {
+      console.error('Approve request failed', error)
+      const errorText = 'Failed to approve transaction. Please try again.'
+      setErrorMessage(errorText)
+      window.alert(errorText)
     } finally {
       setProcessing(null);
     }
-  };
-
-  const handleCategorizeAndApprove = async (transactionId: string) => {
-    const categoryId = selectedCategory[transactionId];
-
-    if (!categoryId) {
-      setError('Please select a category');
-      return;
-    }
-
-    setProcessing(transactionId);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/transactions/${transactionId}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category_id: categoryId }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || 'Failed to approve transaction');
-      }
-
-      // Collapse the row and refresh
-      setExpandedRow(null);
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      console.error('[TransactionTable] Categorize error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to categorize');
-    } finally {
-      setProcessing(null);
-    }
-  };
-
-  const toggleExpanded = (transactionId: string) => {
-    setExpandedRow(expandedRow === transactionId ? null : transactionId);
-    setError(null);
-  };
+  }
 
   if (transactions.length === 0) {
     return (
       <div className="card text-center py-12">
-        <p className="text-gray-500">No transactions found</p>
-        <p className="text-sm text-gray-400 mt-2">
-          Try adjusting your filters or upload new transactions
+        <p className="text-gray-500">No transactions found.</p>
+        <p className="mt-2 text-sm text-gray-400">
+          Try adjusting filters, or upload a file to get started.
         </p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500">
+          <span>Active filters: {filterSummary}</span>
+          <a href={allTimeHref} className="text-primary-600 hover:text-primary-700">
+            View all time
+          </a>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      {error && (
-        <div className="card border-l-4 border-red-400 bg-red-50">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <svg
-                className="h-5 w-5 text-red-400"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            <div className="ml-3 flex-1">
-              <p className="text-sm font-medium text-red-800">{error}</p>
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="ml-auto text-red-500 hover:text-red-700"
-            >
-              <svg
-                className="h-5 w-5"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-          </div>
+    <div className="card overflow-hidden p-0">
+      {errorMessage && (
+        <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-800">
+          {errorMessage}
         </div>
       )}
-
-      <div className="card overflow-hidden p-0">
+      <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">Transactions</h2>
+          <p className="text-xs text-slate-500">
+            Showing {filteredTransactions.length} of {transactions.length} · {filterSummary}
+          </p>
+        </div>
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search payee, description, or account"
+            className="input w-full sm:w-72"
+          />
+        </div>
+      </div>
+      {filteredTransactions.length === 0 ? (
+        <div className="px-6 py-12 text-center">
+          <p className="text-gray-500">No transactions match your filters.</p>
+          <p className="mt-2 text-sm text-gray-400">Try a different search or reset the filter.</p>
+        </div>
+      ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-slate-200">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                   Date
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payee
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                   Description
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                  Account
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                   Category
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
                   Amount
                 </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {transactions.map((transaction) => {
-                const isExpanded = expandedRow === transaction.id;
-                const isProcessing = processing === transaction.id;
-
+            <tbody className="bg-white divide-y divide-slate-100">
+              {filteredTransactions.map((transaction, index) => {
+                const isPositive = transaction.amount >= 0
+                const accountName = transaction.account?.name || 'Unassigned'
+                const transferName = transaction.transfer_to_account?.name
+                const suggestedCategoryId =
+                  transaction.ai_suggested_category || transaction.ai_suggested?.id || null
+                const isCategoryPickerOpen = openCategoryFor === transaction.id
                 return (
-                  <>
-                    <tr
-                      key={transaction.id}
-                      className={!transaction.reviewed ? 'bg-yellow-50' : ''}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(transaction.date).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        <div className="font-medium">{transaction.payee}</div>
-                        {transaction.account && (
-                          <div className="text-xs text-gray-500">
-                            {transaction.account.name}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs">
-                        <div className="truncate">
-                          {transaction.description || '-'}
+                  <tr
+                    key={transaction.id}
+                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} ${!transaction.reviewed ? 'ring-1 ring-inset ring-yellow-100' : ''}`}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                      {transaction.date ? dateFormatter.format(new Date(transaction.date)) : '--'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-900">
+                      <div className="font-medium">{transaction.payee || 'Unknown payee'}</div>
+                      <div className="text-xs text-slate-500">{transaction.description || '—'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-900">
+                      <div className="font-medium">{accountName}</div>
+                      {transferName && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Transfer: {accountName} → {transferName}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        {transaction.reviewed ? (
-                          <div>
-                            <div className="font-medium text-gray-900">
-                              {transaction.category?.name || 'Uncategorized'}
-                            </div>
-                            {transaction.category?.section && (
-                              <div className="text-xs text-gray-500">
-                                {transaction.category.section}
-                              </div>
-                            )}
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {transaction.reviewed ? (
+                        <div>
+                          <div className="font-medium text-slate-900">
+                            {transaction.category?.name || 'Uncategorized'}
                           </div>
-                        ) : (
-                          <div>
+                          {transaction.category?.section && (
+                            <div className="text-xs text-slate-500">{transaction.category.section}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          {transaction.ai_suggested?.name ? (
                             <div className="font-medium text-blue-600">
-                              {transaction.ai_suggested?.name ||
-                                'Needs categorization'}
+                              {transaction.ai_suggested.name}
                             </div>
-                            {transaction.ai_confidence && (
-                              <div className="text-xs text-gray-500">
-                                {Math.round(transaction.ai_confidence * 100)}%
-                                confidence
-                              </div>
-                            )}
-                          </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenCategoryFor(transaction.id)
+                                setSelectedCategoryId('')
+                              }}
+                              className="font-medium text-blue-600 hover:text-blue-700"
+                            >
+                              Needs categorization
+                            </button>
+                          )}
+                          {transaction.ai_confidence && (
+                            <div className="text-xs text-slate-500">
+                              {Math.round(transaction.ai_confidence * 100)}% confidence
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td
+                      className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${
+                        isPositive ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {isPositive ? '+' : ''}
+                      {currencyFormatter.format(Math.abs(transaction.amount || 0))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        {transaction.is_transfer && (
+                          <span className="badge badge-purple">Transfer</span>
                         )}
-                      </td>
-                      <td
-                        className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${
-                          transaction.amount >= 0
-                            ? 'text-green-600'
-                            : 'text-red-600'
-                        }`}
-                      >
-                        {transaction.amount >= 0 ? '+' : ''}$
-                        {Math.abs(transaction.amount).toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {transaction.is_transfer ? (
-                          <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded">
-                            Transfer
-                          </span>
-                        ) : transaction.reviewed ? (
-                          <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
-                            Reviewed
-                          </span>
+                        {transaction.reviewed ? (
+                          <span className="badge badge-green">Reviewed</span>
                         ) : (
-                          <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
-                            Pending
-                          </span>
+                          <span className="badge badge-amber">Pending</span>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                        {!transaction.reviewed && (
-                          <>
-                            {transaction.ai_suggested_category && (
-                              <button
-                                onClick={() =>
-                                  handleApproveWithAI(
-                                    transaction.id,
-                                    transaction.ai_suggested_category
-                                  )
-                                }
-                                disabled={isProcessing || isPending}
-                                className="text-green-600 hover:text-green-900 disabled:opacity-50"
-                              >
-                                {isProcessing ? 'Approving...' : '✓ Approve AI'}
-                              </button>
-                            )}
-                            <button
-                              onClick={() => toggleExpanded(transaction.id)}
-                              disabled={isProcessing || isPending}
-                              className="text-primary-600 hover:text-primary-900 disabled:opacity-50"
-                            >
-                              {isExpanded ? 'Cancel' : '✏ Categorize'}
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-
-                    {/* Expanded row for manual categorization */}
-                    {isExpanded && !transaction.reviewed && (
-                      <tr className="bg-blue-50">
-                        <td colSpan={7} className="px-6 py-4">
-                          <div className="flex items-end gap-4">
-                            <div className="flex-1">
-                              <label className="label text-xs">
-                                Select Category
-                              </label>
-                              <CategorySelect
-                                value={selectedCategory[transaction.id]}
-                                onChange={(value) =>
-                                  setSelectedCategory((prev) => ({
-                                    ...prev,
-                                    [transaction.id]: value,
-                                  }))
-                                }
-                                disabled={isProcessing}
-                                placeholder="Choose a category..."
-                              />
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      {!transaction.reviewed && (
+                        <div className="flex flex-col items-end gap-2">
+                          {isCategoryPickerOpen ? (
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="flex flex-col items-end gap-2">
+                                <select
+                                  value={selectedCategoryId}
+                                  onChange={(event) => setSelectedCategoryId(event.target.value)}
+                                  className="input w-48 text-xs"
+                                >
+                                  <option value="">Select category</option>
+                                  {categories.map((category) => (
+                                    <option key={category.id} value={category.id}>
+                                      {category.section ? `${category.section} · ${category.name}` : category.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleApprove({
+                                        transactionId: transaction.id,
+                                        categoryId: selectedCategoryId || null,
+                                      })
+                                    }
+                                    disabled={
+                                      processing === transaction.id || selectedCategoryId.length === 0
+                                    }
+                                    className="btn-primary text-xs disabled:opacity-50"
+                                  >
+                                    {processing === transaction.id ? 'Approving...' : 'Approve'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenCategoryFor(null)
+                                      setSelectedCategoryId('')
+                                    }}
+                                    className="btn-secondary text-xs"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
                             </div>
+                          ) : (
                             <button
-                              onClick={() =>
-                                handleCategorizeAndApprove(transaction.id)
-                              }
-                              disabled={
-                                isProcessing ||
-                                !selectedCategory[transaction.id]
-                              }
-                              className="btn-primary disabled:opacity-50"
+                              type="button"
+                              onClick={() => {
+                                if (suggestedCategoryId) {
+                                  void handleApprove({
+                                    transactionId: transaction.id,
+                                    categoryId: suggestedCategoryId,
+                                  })
+                                  return
+                                }
+                                setOpenCategoryFor(transaction.id)
+                                setSelectedCategoryId('')
+                              }}
+                              disabled={processing === transaction.id}
+                              className="btn-primary text-xs disabled:opacity-50"
                             >
-                              {isProcessing
-                                ? 'Saving...'
-                                : 'Categorize & Approve'}
+                              {processing === transaction.id
+                                ? 'Approving...'
+                                : suggestedCategoryId
+                                  ? 'Approve'
+                                  : 'Categorize + Approve'}
                             </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                );
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleApprove({
+                                transactionId: transaction.id,
+                                markReviewed: true,
+                              })
+                            }
+                            disabled={processing === transaction.id}
+                            className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                          >
+                            Mark reviewed
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
               })}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
     </div>
   );
 }

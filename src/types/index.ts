@@ -1,7 +1,7 @@
 // Type definitions for Landscape Finance
 
 export type AccountType = 'checking' | 'savings' | 'credit_card' | 'loan' | 'investment';
-export type TransactionStatus = 'SETTLED' | 'PENDING' | 'CANCELLED';
+export type TransactionStatus = 'SETTLED' | 'PENDING' | 'APPROVED' | 'CANCELLED';
 export type CategoryType = 'income' | 'cogs' | 'expense' | 'other_income' | 'other_expense';
 export type JobStatus = 'active' | 'completed' | 'cancelled';
 
@@ -68,6 +68,7 @@ export interface Transaction {
   ai_suggested_category?: string;
   ai_confidence?: number;
   reviewed: boolean;
+  reviewed_at?: string;
   notes?: string;
   raw_csv_data?: any;
   created_at: string;

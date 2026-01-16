@@ -6,6 +6,7 @@ import { ParsedTransaction } from '@/types'
 
 export async function POST(request: NextRequest) {
   try {
+    const debugIngest = process.env.INGEST_DEBUG === 'true'
     const { transactions } = await request.json() as { transactions: ParsedTransaction[] }
     
     if (!transactions || transactions.length === 0) {
@@ -15,6 +16,13 @@ export async function POST(request: NextRequest) {
       )
     }
     
+    if (debugIngest) {
+      console.info('[ingest] Upload received', {
+        parsedCount: transactions.length,
+        sample: transactions.slice(0, 3),
+      })
+    }
+
     // Get default account (or we'll need to pass this from frontend)
     // For now, get first active account or create a default one
     let { data: accounts } = await supabaseAdmin
@@ -49,6 +57,10 @@ export async function POST(request: NextRequest) {
       accountId = newAccount.id
     } else {
       accountId = accounts[0].id
+    }
+
+    if (debugIngest) {
+      console.info('[ingest] Using account', { accountId })
     }
     
     // Get existing transactions for deduplication
@@ -148,6 +160,17 @@ export async function POST(request: NextRequest) {
         }
         
         // Insert transaction
+        if (debugIngest) {
+          console.info('[ingest] Inserting transaction', {
+            accountId,
+            date: transaction.date,
+            payee: transaction.payee,
+            amount: transaction.amount,
+            aiSuggestedCategory: categoryId,
+            confidence,
+          })
+        }
+
         const { error: insertError } = await supabaseAdmin
           .from('transactions')
           .insert({
@@ -168,6 +191,14 @@ export async function POST(request: NextRequest) {
         if (insertError) {
           throw insertError
         }
+
+        if (debugIngest) {
+          console.info('[ingest] Inserted transaction', {
+            payee: transaction.payee,
+            date: transaction.date,
+            amount: transaction.amount,
+          })
+        }
         
         importedCount++
         
@@ -177,6 +208,15 @@ export async function POST(request: NextRequest) {
       }
     }
     
+    if (debugIngest) {
+      console.info('[ingest] Upload summary', {
+        parsedCount: transactions.length,
+        importedCount,
+        duplicateCount,
+        errorCount,
+      })
+    }
+
     return NextResponse.json({
       success: true,
       parsed_count: transactions.length,

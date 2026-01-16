@@ -221,22 +221,28 @@ async function getHistoricalTransactionsForPayee(
  * Increment usage count for a rule
  */
 async function incrementRuleUsage(ruleId: string): Promise<void> {
-  // Fetch current rule
-  const { data: rule } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('categorization_rules')
     .select('times_applied')
     .eq('id', ruleId)
     .single();
 
-  if (rule) {
-    // Update with incremented value
-    await supabaseAdmin
-      .from('categorization_rules')
-      .update({
-        times_applied: (rule.times_applied || 0) + 1,
-        last_used: new Date().toISOString(),
-      })
-      .eq('id', ruleId);
+  if (error) {
+    console.error('Failed to fetch rule usage count', error);
+    return;
+  }
+
+  const nextTimesApplied = (data?.times_applied ?? 0) + 1;
+  const { error: updateError } = await supabaseAdmin
+    .from('categorization_rules')
+    .update({
+      times_applied: nextTimesApplied,
+      last_used: new Date().toISOString(),
+    })
+    .eq('id', ruleId);
+
+  if (updateError) {
+    console.error('Failed to increment rule usage count', updateError);
   }
 }
 
