@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { categorizeTransaction, detectTransactionType, createRuleFromApproval } from '@/lib/categorization-engine'
+import { categorizeTransaction, detectTransactionType } from '@/lib/categorization-engine'
 import { isDuplicateTransaction, isLikelyTransfer } from '@/lib/csv-parser'
 import { ParsedTransaction } from '@/types'
 
 export async function POST(request: NextRequest) {
   try {
     const debugIngest = process.env.INGEST_DEBUG === 'true'
-    const { transactions } = await request.json() as { transactions: ParsedTransaction[] }
+    const { transactions, accountId: requestedAccountId } = await request.json() as {
+      transactions: ParsedTransaction[]
+      accountId?: string
+    }
     
     if (!transactions || transactions.length === 0) {
       return NextResponse.json(
-        { error: 'No transactions provided' },
+        { ok: false, error: 'No transactions provided' },
         { status: 400 }
       )
     }
@@ -23,40 +26,43 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Get default account (or we'll need to pass this from frontend)
-    // For now, get first active account or create a default one
-    let { data: accounts } = await supabaseAdmin
-      .from('accounts')
-      .select('id')
-      .eq('is_active', true)
-      .limit(1)
-    
-    let accountId: string
-    
-    if (!accounts || accounts.length === 0) {
-      // Create default account
-      const { data: newAccount, error: accountError } = await supabaseAdmin
+    let accountId = requestedAccountId
+
+    if (!accountId) {
+      const { data: accounts } = await supabaseAdmin
         .from('accounts')
-        .insert({
-          name: 'Default Account',
-          type: 'checking',
-          institution: 'Unknown',
-          is_active: true,
-        })
         .select('id')
-        .single()
-      
-      if (accountError || !newAccount) {
-        console.error('Failed to create account:', accountError)
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+
+      if (!accounts || accounts.length === 0) {
+        const { data: newAccount, error: accountError } = await supabaseAdmin
+          .from('accounts')
+          .insert({
+            name: 'Default Account',
+            type: 'checking',
+            institution: 'Unknown',
+            is_active: true,
+          })
+          .select('id')
+          .single()
+
+        if (accountError || !newAccount) {
+          console.error('Failed to create account:', accountError)
+          return NextResponse.json(
+            { ok: false, error: 'Failed to create default account' },
+            { status: 500 }
+          )
+        }
+
+        accountId = newAccount.id
+      } else {
         return NextResponse.json(
-          { error: 'Failed to create default account' },
-          { status: 500 }
+          { ok: false, error: 'Account selection is required before upload.' },
+          { status: 400 }
         )
       }
-      
-      accountId = newAccount.id
-    } else {
-      accountId = accounts[0].id
     }
 
     if (debugIngest) {
@@ -69,6 +75,7 @@ export async function POST(request: NextRequest) {
       .from('transactions')
       .select('date, payee, amount')
       .in('date', dates)
+      .eq('account_id', accountId)
     
     const existing = existingTransactions || []
     
@@ -218,18 +225,20 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      success: true,
-      parsed_count: transactions.length,
-      imported_count: importedCount,
-      duplicate_count: duplicateCount,
-      error_count: errorCount,
-      errors: errors.length > 0 ? errors : undefined,
+      ok: true,
+      data: {
+        parsed_count: transactions.length,
+        imported_count: importedCount,
+        duplicate_count: duplicateCount,
+        error_count: errorCount,
+        errors: errors.length > 0 ? errors : undefined,
+      },
     })
     
   } catch (error) {
     console.error('CSV upload error:', error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Upload failed' },
+      { ok: false, error: error instanceof Error ? error.message : 'Upload failed' },
       { status: 500 }
     )
   }

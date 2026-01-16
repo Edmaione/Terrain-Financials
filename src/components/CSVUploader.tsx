@@ -1,19 +1,40 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { parseCSV } from '@/lib/csv-parser'
 import { ParsedTransaction } from '@/types'
+import { apiRequest } from '@/lib/api-client'
+import AlertBanner from '@/components/AlertBanner'
 
-export default function CSVUploader() {
+export default function CSVUploader({
+  accounts,
+  selectedAccountId,
+}: {
+  accounts: Array<{ id: string; name: string; institution?: string | null }>
+  selectedAccountId: string | null
+}) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [files, setFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([])
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [accountId, setAccountId] = useState(selectedAccountId ?? '')
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
+
+  useEffect(() => {
+    setAccountId(selectedAccountId ?? '')
+  }, [selectedAccountId])
+
+  const handleAccountChange = (value: string) => {
+    setAccountId(value)
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('account_id', value)
+    router.push(`/upload?${params.toString()}`)
+  }
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -81,26 +102,32 @@ export default function CSVUploader() {
     setSuccessMessage(null)
 
     try {
-      const response = await fetch('/api/upload/csv', {
+      if (!accountId) {
+        throw new Error('Select an account before uploading.')
+      }
+
+      const result = await apiRequest<{
+        parsed_count: number
+        imported_count: number
+        duplicate_count: number
+        error_count: number
+        errors?: string[]
+      }>('/api/upload/csv', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           transactions: parsedData,
+          accountId,
         }),
       })
 
-      if (!response.ok) {
-        throw new Error('Upload failed')
-      }
-
-      const result = await response.json()
       const message = `Imported ${result.imported_count} transactions. ${result.duplicate_count} duplicates skipped.`
       setSuccessMessage(message)
 
       setTimeout(() => {
-        router.push('/transactions?reviewed=false&range=all')
+        router.push(`/transactions?reviewed=false&range=all&account_id=${accountId}`)
       }, 800)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
@@ -150,6 +177,27 @@ export default function CSVUploader() {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+        <label className="label" htmlFor="upload-account">
+          Account for import
+        </label>
+        <select
+          id="upload-account"
+          value={accountId}
+          onChange={(event) => handleAccountChange(event.target.value)}
+          className="input w-full sm:max-w-sm"
+          aria-label="Select account for upload"
+        >
+          {accounts.length === 0 && <option value="">No accounts available</option>}
+          {accounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {account.name}
+              {account.institution ? ` · ${account.institution}` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {files.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-medium text-slate-900">Selected files</h3>
@@ -168,22 +216,24 @@ export default function CSVUploader() {
       )}
 
       {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
-          <p className="text-sm text-rose-800">{error}</p>
-        </div>
+        <AlertBanner variant="error" title="Upload failed" message={error} />
       )}
 
       {successMessage && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-          <p className="text-sm text-emerald-800">{successMessage}</p>
-          <button
-            type="button"
-            onClick={() => router.push('/transactions?reviewed=false&range=all')}
-            className="mt-3 btn-primary"
-          >
-            View transactions
-          </button>
-        </div>
+        <AlertBanner
+          variant="success"
+          title="Upload complete"
+          message={successMessage}
+          actions={(
+            <button
+              type="button"
+              onClick={() => router.push(`/transactions?reviewed=false&range=all&account_id=${accountId}`)}
+              className="btn-primary"
+            >
+              View transactions
+            </button>
+          )}
+        />
       )}
 
       {parsedData.length > 0 && (
@@ -197,7 +247,7 @@ export default function CSVUploader() {
             </div>
             <button
               onClick={handleUpload}
-              disabled={uploading}
+              disabled={uploading || !accountId}
               className="btn-primary disabled:opacity-50"
             >
               {uploading ? 'Uploading...' : 'Import Transactions'}

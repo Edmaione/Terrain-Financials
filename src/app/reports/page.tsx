@@ -1,34 +1,106 @@
+import { redirect } from 'next/navigation'
 import { generatePLReport, generateCashFlowData } from '@/lib/reports'
 import PLReport from '@/components/PLReport'
 import CashFlowChart from '@/components/CashFlowChart'
+import ReportsFilters from '@/components/ReportsFilters'
+import { parseDateRange, getDateRangeLabel, DateRangePreset } from '@/lib/date-utils'
+import { resolveAccountSelection } from '@/lib/accounts'
 
-async function getReports() {
-  const today = new Date()
-  const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+async function getReports(startDate: string, endDate: string, accountId?: string) {
+  try {
+    const [plReport, cashFlowData] = await Promise.all([
+      generatePLReport(startDate, endDate, accountId),
+      generateCashFlowData(startDate, endDate, 'day', accountId),
+    ])
 
-  const startDate = firstDayOfMonth.toISOString().split('T')[0]
-  const endDate = lastDayOfMonth.toISOString().split('T')[0]
-
-  const [plReport, cashFlowData] = await Promise.all([
-    generatePLReport(startDate, endDate),
-    generateCashFlowData(startDate, endDate, 'day'),
-  ])
-
-  return { plReport, cashFlowData, startDate, endDate }
+    return { plReport, cashFlowData, error: null }
+  } catch (error) {
+    console.error('[reports] Failed to load reports', error)
+    return {
+      plReport: {
+        period_start: startDate,
+        period_end: endDate,
+        total_income: 0,
+        total_cogs: 0,
+        gross_profit: 0,
+        total_expenses: 0,
+        net_operating_income: 0,
+        other_income: 0,
+        other_expenses: 0,
+        net_income: 0,
+        lines: [],
+      },
+      cashFlowData: [],
+      error: error instanceof Error ? error.message : 'Failed to load reports',
+    }
+  }
 }
 
-export default async function ReportsPage() {
-  const { plReport, cashFlowData, startDate, endDate } = await getReports()
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: { range?: string; start?: string; end?: string; account_id?: string }
+}) {
+  const { accounts, selectedAccount, needsRedirect } = await resolveAccountSelection(
+    searchParams.account_id
+  )
+
+  const range = searchParams.range ?? 'last_3_months'
+  const { startDate, endDate } = parseDateRange(range, searchParams.start, searchParams.end)
+  const needsDefaults = !searchParams.range || !searchParams.account_id
+
+  if (selectedAccount && (needsRedirect || needsDefaults)) {
+    const params = new URLSearchParams()
+    params.set('account_id', selectedAccount.id)
+    params.set('range', range)
+    if (range === 'custom') {
+      params.set('start', startDate)
+      params.set('end', endDate)
+    }
+    redirect(`/reports?${params.toString()}`)
+  }
+
+  if (!selectedAccount) {
+    return (
+      <div className="card border border-rose-200 bg-rose-50 text-rose-900">
+        <h2 className="text-sm font-semibold">No account available.</h2>
+        <p className="text-sm text-rose-700 mt-1">
+          Create or activate an account to view reports.
+        </p>
+      </div>
+    )
+  }
+
+  const { plReport, cashFlowData, error } = await getReports(
+    startDate,
+    endDate,
+    selectedAccount?.id
+  )
+  const rangeLabel = getDateRangeLabel(range as DateRangePreset)
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-semibold text-slate-900">Reports</h1>
         <p className="text-sm text-slate-500">
-          Financial reports and analysis for the current month.
+          Financial reports and analysis for your selected account.
         </p>
       </div>
+
+      <ReportsFilters
+        range={range}
+        startDate={startDate}
+        endDate={endDate}
+        accounts={accounts}
+        accountId={selectedAccount?.id}
+      />
+
+      {error && (
+        <div className="card border border-rose-200 bg-rose-50 text-rose-900">
+          <h2 className="text-sm font-semibold">Reports are unavailable.</h2>
+          <p className="text-sm text-rose-700 mt-1">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <div className="card">
@@ -63,9 +135,15 @@ export default async function ReportsPage() {
 
       <div className="card">
         <h2 className="text-lg font-semibold text-slate-900">Cash Flow</h2>
-        <p className="text-xs text-slate-500">{new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}</p>
+        <p className="text-xs text-slate-500">{rangeLabel} · {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}</p>
         <div className="mt-6">
-          <CashFlowChart data={cashFlowData} />
+          {cashFlowData.length > 0 ? (
+            <CashFlowChart data={cashFlowData} />
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+              No cash flow data for this period.
+            </div>
+          )}
         </div>
       </div>
 
@@ -79,7 +157,13 @@ export default async function ReportsPage() {
           </div>
         </div>
         <div className="mt-6">
-          <PLReport report={plReport} />
+          {plReport.lines.length > 0 ? (
+            <PLReport report={plReport} />
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+              No reviewed transactions in this period.
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,33 @@
+import { redirect } from 'next/navigation'
 import CSVUploader from '@/components/CSVUploader'
+import { resolveAccountSelection } from '@/lib/accounts'
 
-export default function UploadPage() {
+export default async function UploadPage({
+  searchParams,
+}: {
+  searchParams: { account_id?: string }
+}) {
+  const { accounts, selectedAccount, needsRedirect } = await resolveAccountSelection(
+    searchParams.account_id
+  )
+
+  if (selectedAccount && needsRedirect) {
+    const params = new URLSearchParams()
+    params.set('account_id', selectedAccount.id)
+    redirect(`/upload?${params.toString()}`)
+  }
+
+  if (!selectedAccount) {
+    return (
+      <div className="card border border-rose-200 bg-rose-50 text-rose-900">
+        <h2 className="text-sm font-semibold">No account available.</h2>
+        <p className="text-sm text-rose-700 mt-1">
+          Create or activate an account before uploading transactions.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2">
@@ -11,7 +38,10 @@ export default function UploadPage() {
       </div>
 
       <div className="card max-w-4xl">
-        <CSVUploader />
+        <CSVUploader
+          accounts={accounts}
+          selectedAccountId={selectedAccount?.id ?? null}
+        />
       </div>
 
       <div className="card max-w-4xl border border-slate-200 bg-slate-50">

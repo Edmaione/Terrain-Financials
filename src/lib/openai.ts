@@ -1,17 +1,32 @@
 import OpenAI from 'openai';
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error('Missing OPENAI_API_KEY');
-}
+let cachedClient: OpenAI | null | undefined;
 
-export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAIClient() {
+  if (cachedClient !== undefined) {
+    return cachedClient;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    cachedClient = null;
+    return null;
+  }
+
+  cachedClient = new OpenAI({ apiKey });
+  return cachedClient;
+}
 
 /**
  * Extract structured data from a PDF using GPT-4 Vision
  */
 export async function extractPDFData(base64PDF: string, extractionType: 'receipt' | 'statement' | 'invoice') {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    console.warn('[openai] OPENAI_API_KEY missing. Skipping PDF extraction.');
+    return null;
+  }
+
   const prompts = {
     receipt: `Extract the following information from this receipt:
 - Vendor/Store name
@@ -82,6 +97,12 @@ export async function suggestCategory(
   availableCategories: Array<{ id: string; name: string; section: string }>,
   historicalTransactions?: Array<{ payee: string; category: string }>
 ) {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    console.warn('[openai] OPENAI_API_KEY missing. Skipping category suggestion.');
+    return null;
+  }
+
   const categoryList = availableCategories
     .map(c => `- ${c.name} (${c.section})`)
     .join('\n');
@@ -146,6 +167,11 @@ export async function batchSuggestCategories(
   }>,
   availableCategories: Array<{ id: string; name: string; section: string }>
 ) {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    console.warn('[openai] OPENAI_API_KEY missing. Skipping batch suggestions.');
+    return [];
+  }
   // Process in batches of 10 to avoid token limits
   const batchSize = 10;
   const results = [];

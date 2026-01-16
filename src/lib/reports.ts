@@ -6,10 +6,11 @@ import { PLReport, PLReportLine, CashFlowData, WeeklySummary } from '@/types';
  */
 export async function generatePLReport(
   startDate: string,
-  endDate: string
+  endDate: string,
+  accountId?: string
 ): Promise<PLReport> {
   // Get all transactions in date range with categories
-  const { data: transactions } = await supabaseAdmin
+  let transactionsQuery = supabaseAdmin
     .from('transactions')
     .select(`
       *,
@@ -21,18 +22,50 @@ export async function generatePLReport(
     .eq('reviewed', true)
     .not('category_id', 'is', null);
 
-  if (!transactions) {
-    throw new Error('Failed to fetch transactions');
+  if (accountId) {
+    transactionsQuery = transactionsQuery.eq('account_id', accountId);
+  }
+
+  const { data: transactions, error: transactionsError } = await transactionsQuery;
+
+  if (transactionsError || !transactions) {
+    console.error('[reports] Failed to fetch transactions', transactionsError);
+    return {
+      period_start: startDate,
+      period_end: endDate,
+      total_income: 0,
+      total_cogs: 0,
+      gross_profit: 0,
+      total_expenses: 0,
+      net_operating_income: 0,
+      other_income: 0,
+      other_expenses: 0,
+      net_income: 0,
+      lines: [],
+    };
   }
 
   // Get all categories
-  const { data: categories } = await supabaseAdmin
+  const { data: categories, error: categoriesError } = await supabaseAdmin
     .from('categories')
     .select('*')
     .order('sort_order');
 
-  if (!categories) {
-    throw new Error('Failed to fetch categories');
+  if (categoriesError || !categories) {
+    console.error('[reports] Failed to fetch categories', categoriesError);
+    return {
+      period_start: startDate,
+      period_end: endDate,
+      total_income: 0,
+      total_cogs: 0,
+      gross_profit: 0,
+      total_expenses: 0,
+      net_operating_income: 0,
+      other_income: 0,
+      other_expenses: 0,
+      net_income: 0,
+      lines: [],
+    };
   }
 
   // Calculate totals by category
@@ -182,16 +215,26 @@ export async function generatePLReport(
 export async function generateCashFlowData(
   startDate: string,
   endDate: string,
-  interval: 'day' | 'week' | 'month' = 'day'
+  interval: 'day' | 'week' | 'month' = 'day',
+  accountId?: string
 ): Promise<CashFlowData[]> {
-  const { data: transactions } = await supabaseAdmin
+  let transactionsQuery = supabaseAdmin
     .from('transactions')
     .select('date, amount')
     .gte('date', startDate)
     .lte('date', endDate)
     .order('date');
 
-  if (!transactions) return [];
+  if (accountId) {
+    transactionsQuery = transactionsQuery.eq('account_id', accountId);
+  }
+
+  const { data: transactions, error } = await transactionsQuery;
+
+  if (error || !transactions) {
+    console.error('[reports] Failed to fetch cash flow transactions', error);
+    return [];
+  }
 
   // Group by interval
   const grouped = new Map<string, { in: number; out: number }>();
@@ -236,9 +279,10 @@ export async function generateCashFlowData(
  */
 export async function generateWeeklySummary(
   weekStart: string,
-  weekEnd: string
+  weekEnd: string,
+  accountId?: string
 ): Promise<WeeklySummary> {
-  const { data: transactions } = await supabaseAdmin
+  let transactionsQuery = supabaseAdmin
     .from('transactions')
     .select(`
       *,
@@ -247,7 +291,14 @@ export async function generateWeeklySummary(
     .gte('date', weekStart)
     .lte('date', weekEnd);
 
- if (!transactions) {
+  if (accountId) {
+    transactionsQuery = transactionsQuery.eq('account_id', accountId);
+  }
+
+  const { data: transactions, error } = await transactionsQuery;
+
+ if (error || !transactions) {
+    console.error('[reports] Failed to fetch weekly summary transactions', error);
     return {
       week_start: weekStart,
       week_end: weekEnd,
