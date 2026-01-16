@@ -7,7 +7,8 @@ export default function CategoriesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Categories"
+        label="Categories"
+        title="Category management"
         description="Manage category lists used for transaction approvals and reporting."
       />
 

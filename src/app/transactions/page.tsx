@@ -1,9 +1,12 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
 import TransactionTable from '@/components/TransactionTable'
 import TransactionsFilters from '@/components/TransactionsFilters'
 import { resolveAccountSelection } from '@/lib/accounts'
 import PageHeader from '@/components/PageHeader'
+import AlertBanner from '@/components/AlertBanner'
+import { buttonVariants } from '@/components/ui/Button'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,29 +27,29 @@ function getDateRange(range: string, start?: string, end?: string): DateRange {
     case 'last_month': {
       const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
       const endDate = new Date(now.getFullYear(), now.getMonth(), 0)
-      return { start: toDateString(startDate), end: toDateString(endDate), label: 'Last Month' }
+      return { start: toDateString(startDate), end: toDateString(endDate), label: 'Last month' }
     }
     case 'last_3_months': {
       const startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1)
-      return { start: toDateString(startDate), end: toDateString(now), label: 'Last 3 Months' }
+      return { start: toDateString(startDate), end: toDateString(now), label: 'Last 3 months' }
     }
     case 'ytd': {
       const startDate = new Date(now.getFullYear(), 0, 1)
-      return { start: toDateString(startDate), end: toDateString(now), label: 'Year to Date' }
+      return { start: toDateString(startDate), end: toDateString(now), label: 'Year to date' }
     }
     case 'all': {
-      return { label: 'All Time' }
+      return { label: 'All time' }
     }
     case 'custom': {
       if (start && end) {
-        return { start, end, label: 'Custom Range' }
+        return { start, end, label: 'Custom range' }
       }
-      return { start: toDateString(new Date(now.getFullYear(), now.getMonth(), 1)), end: toDateString(now), label: 'This Month' }
+      return { start: toDateString(new Date(now.getFullYear(), now.getMonth(), 1)), end: toDateString(now), label: 'This month' }
     }
     case 'this_month':
     default: {
       const startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-      return { start: toDateString(startDate), end: toDateString(now), label: 'This Month' }
+      return { start: toDateString(startDate), end: toDateString(now), label: 'This month' }
     }
   }
 }
@@ -175,12 +178,11 @@ export default async function TransactionsPage({
 
   if (!selectedAccount) {
     return (
-      <div className="card border border-rose-200 bg-rose-50 text-rose-900">
-        <h2 className="text-sm font-semibold">No account available.</h2>
-        <p className="text-sm text-rose-700 mt-1">
-          Create or activate an account to view transactions.
-        </p>
-      </div>
+      <AlertBanner
+        variant="error"
+        title="No account available."
+        message="Create or activate an account to view transactions."
+      />
     )
   }
 
@@ -228,16 +230,17 @@ export default async function TransactionsPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Transactions"
+        label="Transactions"
+        title="Transaction review"
         description="Review, categorize, and understand every transaction across your accounts."
         actions={(
           <>
-            <a href={`/transactions?${refreshParams.toString()}`} className="btn-secondary">
+            <Link href={`/transactions?${refreshParams.toString()}`} className={buttonVariants({ variant: 'secondary' })}>
               Refresh
-            </a>
-            <a href="/upload" className="btn-primary">
+            </Link>
+            <Link href="/upload" className={buttonVariants({ variant: 'primary' })}>
               Upload CSV
-            </a>
+            </Link>
           </>
         )}
       />
@@ -254,27 +257,27 @@ export default async function TransactionsPage({
       />
 
       {error && (
-        <div className="card border border-red-200 bg-red-50 text-red-900">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-semibold">We could not load transactions.</h2>
-              <p className="text-sm text-red-700">
-                Please try again or refresh the page. If the issue persists, check the error details below.
-              </p>
-            </div>
-            <a href={`/transactions?${refreshParams.toString()}`} className="btn-secondary">
+        <AlertBanner
+          variant="error"
+          title="We could not load transactions."
+          message="Please try again or refresh the page. If the issue persists, check the error details below."
+          actions={(
+            <Link href={`/transactions?${refreshParams.toString()}`} className={buttonVariants({ variant: 'secondary' })}>
               Retry
-            </a>
-          </div>
-          <details className="mt-3 text-xs text-red-800">
-            <summary className="cursor-pointer font-medium">Error details</summary>
-            <pre className="mt-2 whitespace-pre-wrap">{JSON.stringify(error, null, 2)}</pre>
-          </details>
-        </div>
+            </Link>
+          )}
+        />
+      )}
+
+      {error && (
+        <details className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800">
+          <summary className="cursor-pointer font-medium">Error details</summary>
+          <pre className="mt-2 whitespace-pre-wrap">{JSON.stringify(error, null, 2)}</pre>
+        </details>
       )}
 
       {showDebugPanel && (
-        <div className="card border-dashed border border-slate-200 bg-slate-50 text-xs text-slate-600">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
           <div className="font-semibold text-slate-700">Data Health</div>
           <div className="mt-2 grid gap-1 sm:grid-cols-2">
             <div>Reviewed filter: {searchParams.reviewed ?? 'all'}</div>
@@ -293,5 +296,5 @@ export default async function TransactionsPage({
         accountId={selectedAccount?.id ?? ''}
       />
     </div>
-  );
+  )
 }

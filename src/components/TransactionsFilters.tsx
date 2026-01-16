@@ -2,13 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { IconFilter, IconRefresh, IconX } from '@/components/ui/icons'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
+import { Badge } from '@/components/ui/Badge'
+import { cn } from '@/lib/utils'
 
 const RANGE_OPTIONS = [
-  { value: 'this_month', label: 'This Month' },
-  { value: 'last_month', label: 'Last Month' },
-  { value: 'last_3_months', label: 'Last 3 Months' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'last_month', label: 'Last month' },
+  { value: 'last_3_months', label: 'Last 3 months' },
   { value: 'ytd', label: 'YTD' },
-  { value: 'all', label: 'All Time' },
+  { value: 'all', label: 'All time' },
   { value: 'custom', label: 'Custom' },
 ]
 
@@ -71,7 +78,7 @@ export default function TransactionsFilters({
   const activeReviewed = reviewed ?? 'all'
 
   const filterSummary = useMemo(() => {
-    const rangeLabel = RANGE_OPTIONS.find((option) => option.value === range)?.label ?? 'This Month'
+    const rangeLabel = RANGE_OPTIONS.find((option) => option.value === range)?.label ?? 'This month'
     const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReviewed)?.label ?? 'All'
     return `${rangeLabel} · ${reviewLabel}`
   }, [range, activeReviewed])
@@ -143,41 +150,38 @@ export default function TransactionsFilters({
   }
 
   return (
-    <div className="card space-y-4 sticky top-20 z-20">
+    <Card className="sticky top-20 z-20 p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-700">Filters</p>
-          <p className="text-xs text-slate-500">{filterSummary}</p>
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <IconFilter className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-700">Filters</p>
+            <p className="text-xs text-slate-500">{filterSummary}</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => router.refresh()}
-            className="btn-secondary"
-          >
+          <Button variant="secondary" size="sm" onClick={() => router.refresh()}>
+            <IconRefresh className="h-4 w-4" />
             Refresh
-          </button>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="btn-ghost"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
             Clear filters
-          </button>
+          </Button>
           <span className="text-xs text-slate-500">Updated {lastUpdated}</span>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(260px,1.4fr)] lg:items-center">
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(260px,1.4fr)] lg:items-center">
         <div className="space-y-2">
-          <label className="label" htmlFor="account-filter">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="account-filter">
             Account
           </label>
-          <select
+          <Select
             id="account-filter"
             value={accountId || ''}
             onChange={(event) => handleAccountChange(event.target.value)}
-            className="input w-full"
             aria-label="Select account"
           >
             {accounts.length === 0 && <option value="">No accounts</option>}
@@ -187,109 +191,108 @@ export default function TransactionsFilters({
                 {account.institution ? ` · ${account.institution}` : ''}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div className="space-y-2">
-          <label className="label" htmlFor="transaction-search">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="transaction-search">
             Search
           </label>
           <div className="relative">
-            <input
+            <Input
               id="transaction-search"
               type="search"
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Search payee, description, or reference"
-              className="input w-full pr-10"
+              className="pr-10"
               aria-label="Search transactions"
             />
             {searchValue && (
               <button
                 type="button"
                 onClick={() => setSearchValue('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                 aria-label="Clear search"
               >
-                Clear
+                <IconX className="h-4 w-4" />
               </button>
             )}
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap gap-2">
           {RANGE_OPTIONS.map((option) => (
-            <button
+            <Button
               key={option.value}
-              type="button"
+              variant="outline"
+              size="sm"
               onClick={() => handleRangeChange(option.value)}
-              className={`pill ${range === option.value ? 'pill-active' : 'pill-inactive'}`}
+              className={cn(
+                'rounded-full border border-slate-200 bg-white text-slate-600',
+                range === option.value && 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
+              )}
             >
               {option.label}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
           {REVIEW_OPTIONS.map((option) => (
-            <button
+            <Button
               key={option.value}
-              type="button"
+              variant="outline"
+              size="sm"
               onClick={() => handleReviewChange(option.value)}
-              className={`pill ${activeReviewed === option.value ? 'pill-active' : 'pill-inactive'}`}
+              className={cn(
+                'rounded-full border border-slate-200 bg-white text-slate-600',
+                activeReviewed === option.value && 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
+              )}
             >
               {option.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {activeChips.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           {activeChips.map((chip) => (
-            <span key={chip} className="badge badge-slate">
-              {chip}
-            </span>
+            <Badge key={chip}>{chip}</Badge>
           ))}
         </div>
       )}
 
       {range === 'custom' && (
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
           <div className="flex-1">
-            <label className="label" htmlFor="custom-start">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="custom-start">
               Start date
             </label>
-            <input
+            <Input
               id="custom-start"
               type="date"
               value={customStart}
               onChange={(event) => setCustomStart(event.target.value)}
-              className="input w-full"
             />
           </div>
           <div className="flex-1">
-            <label className="label" htmlFor="custom-end">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="custom-end">
               End date
             </label>
-            <input
+            <Input
               id="custom-end"
               type="date"
               value={customEnd}
               onChange={(event) => setCustomEnd(event.target.value)}
-              className="input w-full"
             />
           </div>
-          <button
-            type="button"
-            onClick={applyCustomRange}
-            className="btn-primary"
-            disabled={!customStart || !customEnd}
-          >
+          <Button variant="primary" onClick={applyCustomRange} disabled={!customStart || !customEnd}>
             Apply
-          </button>
+          </Button>
         </div>
       )}
-    </div>
+    </Card>
   )
 }

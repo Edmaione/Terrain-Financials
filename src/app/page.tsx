@@ -1,8 +1,12 @@
+import Link from 'next/link'
 import { supabaseAdmin } from '@/lib/supabase'
 import { generateWeeklySummary } from '@/lib/reports'
 import WeeklySummary from '@/components/WeeklySummary'
 import DashboardStats from '@/components/DashboardStats'
 import PageHeader from '@/components/PageHeader'
+import AlertBanner from '@/components/AlertBanner'
+import { Card } from '@/components/ui/Card'
+import { buttonVariants } from '@/components/ui/Button'
 
 export const dynamic = 'force-dynamic'
 
@@ -115,51 +119,52 @@ export default async function Dashboard() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Overview"
-        title="Dashboard"
-        description="Financial overview for Maione Landscapes LLC."
+        label="Dashboard"
+        title="Maione Landscapes LLC"
+        description="Financial overview with current cash, monthly performance, and review queue."
         actions={(
           <>
-            <a href="/transactions" className="btn-primary">
+            <Link href="/transactions" className={buttonVariants({ variant: 'primary' })}>
               Review transactions
-            </a>
-            <a href="/upload" className="btn-secondary">
+            </Link>
+            <Link href="/upload" className={buttonVariants({ variant: 'secondary' })}>
               Upload CSV
-            </a>
-            <a href="/reports" className="btn-ghost">
+            </Link>
+            <Link href="/reports" className={buttonVariants({ variant: 'ghost' })}>
               View reports
-            </a>
+            </Link>
           </>
         )}
       />
 
       {data.error && (
-        <div className="card border border-rose-200 bg-rose-50 text-rose-900">
-          <h2 className="text-sm font-semibold">Dashboard data is unavailable.</h2>
-          <p className="text-sm text-rose-700 mt-1">{data.error}</p>
-          <div className="mt-4">
-            <a href="/" className="btn-secondary">
+        <AlertBanner
+          variant="error"
+          title="Dashboard data is unavailable."
+          message={data.error}
+          actions={(
+            <Link href="/" className={buttonVariants({ variant: 'secondary' })}>
               Retry loading
-            </a>
-          </div>
-        </div>
+            </Link>
+          )}
+        />
       )}
 
       {data.transactionCount === 0 ? (
-        <div className="card border-dashed border border-slate-200 bg-white">
+        <Card className="border-dashed border-slate-200 p-8">
           <h2 className="text-lg font-semibold text-slate-900">No transactions yet</h2>
           <p className="mt-2 text-sm text-slate-500">
             Upload your first CSV file to start reviewing and categorizing transactions.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <a href="/upload" className="btn-primary">
+            <Link href="/upload" className={buttonVariants({ variant: 'primary' })}>
               Upload CSV
-            </a>
-            <a href="/transactions" className="btn-secondary">
+            </Link>
+            <Link href="/transactions" className={buttonVariants({ variant: 'secondary' })}>
               View transactions
-            </a>
+            </Link>
           </div>
-        </div>
+        </Card>
       ) : (
         <>
           <DashboardStats
@@ -175,7 +180,7 @@ export default async function Dashboard() {
       )}
 
       {data.unreviewedCount > 0 && (
-        <div className="card border-l-4 border-amber-400">
+        <Card className="border-l-4 border-amber-400 p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
               ⚠️
@@ -185,13 +190,16 @@ export default async function Dashboard() {
                 {data.unreviewedCount} transaction{data.unreviewedCount !== 1 ? 's' : ''} need review
               </h3>
               <div className="mt-2">
-                <a href="/transactions?reviewed=false" className="text-sm font-medium text-amber-700 hover:text-amber-600">
+                <Link
+                  href="/transactions?reviewed=false"
+                  className="text-sm font-medium text-amber-700 hover:text-amber-600"
+                >
                   Review now
-                </a>
+                </Link>
               </div>
             </div>
           </div>
-        </div>
+        </Card>
       )}
     </div>
   )

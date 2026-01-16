@@ -1,9 +1,14 @@
-'use client';
+'use client'
 
-import { useEffect, useMemo, useState } from 'react';
-import AlertBanner from '@/components/AlertBanner';
-import { apiRequest } from '@/lib/api-client';
-import { Category } from '@/types';
+import { useEffect, useMemo, useState } from 'react'
+import { IconPlusCircle, IconRefresh } from '@/components/ui/icons'
+import AlertBanner from '@/components/AlertBanner'
+import { apiRequest } from '@/lib/api-client'
+import { Category } from '@/types'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 
 const TYPE_OPTIONS = [
   { value: 'income', label: 'Income' },
@@ -11,7 +16,7 @@ const TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
   { value: 'other_income', label: 'Other Income' },
   { value: 'other_expense', label: 'Other Expense' },
-];
+]
 
 const emptyForm = {
   name: '',
@@ -19,70 +24,70 @@ const emptyForm = {
   section: '',
   parent_id: '',
   sort_order: 0,
-};
+}
 
 export default function CategoriesManager() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [formState, setFormState] = useState({ ...emptyForm });
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [categories, setCategories] = useState<Category[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [formState, setFormState] = useState({ ...emptyForm })
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
 
   const parentOptions = useMemo(
     () => categories.filter((category) => !category.parent_id),
     [categories]
-  );
+  )
 
   const fetchCategories = async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
     try {
-      const data = await apiRequest<Category[]>('/api/categories');
-      setCategories(data);
+      const data = await apiRequest<Category[]>('/api/categories')
+      setCategories(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load categories.');
+      setError(err instanceof Error ? err.message : 'Failed to load categories.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   useEffect(() => {
-    fetchCategories();
-  }, []);
+    fetchCategories()
+  }, [])
 
   const resetForm = () => {
-    setEditingId(null);
-    setFormState({ ...emptyForm });
-  };
+    setEditingId(null)
+    setFormState({ ...emptyForm })
+  }
 
   const openCreateModal = () => {
-    resetForm();
-    setIsModalOpen(true);
-  };
+    resetForm()
+    setIsModalOpen(true)
+  }
 
   const openEditModal = (category: Category) => {
-    setEditingId(category.id);
+    setEditingId(category.id)
     setFormState({
       name: category.name,
       type: category.type,
       section: category.section || '',
       parent_id: category.parent_id || '',
       sort_order: category.sort_order || 0,
-    });
-    setIsModalOpen(true);
-  };
+    })
+    setIsModalOpen(true)
+  }
 
   const closeModal = () => {
-    setIsModalOpen(false);
-    setError(null);
-  };
+    setIsModalOpen(false)
+    setError(null)
+  }
 
   const handleSubmit = async () => {
-    setError(null);
-    setSuccess(null);
+    setError(null)
+    setSuccess(null)
 
     try {
       const payload = {
@@ -91,10 +96,10 @@ export default function CategoriesManager() {
         section: formState.section.trim() || null,
         parent_id: formState.parent_id || null,
         sort_order: Number(formState.sort_order) || 0,
-      };
+      }
 
       if (!payload.name) {
-        throw new Error('Category name is required.');
+        throw new Error('Category name is required.')
       }
 
       if (editingId) {
@@ -102,45 +107,45 @@ export default function CategoriesManager() {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-        });
-        setSuccess('Category updated.');
+        })
+        setSuccess('Category updated.')
       } else {
         await apiRequest('/api/categories', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-        });
-        setSuccess('Category created.');
+        })
+        setSuccess('Category created.')
       }
 
-      closeModal();
-      resetForm();
-      await fetchCategories();
+      closeModal()
+      resetForm()
+      await fetchCategories()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save category.');
+      setError(err instanceof Error ? err.message : 'Failed to save category.')
     }
-  };
+  }
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setError(null);
-    setSuccess(null);
+    if (!deleteTarget) return
+    setError(null)
+    setSuccess(null)
 
     try {
       await apiRequest(`/api/categories/${deleteTarget.id}`, {
         method: 'DELETE',
-      });
-      setSuccess('Category deleted.');
-      setDeleteTarget(null);
-      await fetchCategories();
+      })
+      setSuccess('Category deleted.')
+      setDeleteTarget(null)
+      await fetchCategories()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete category.');
+      setError(err instanceof Error ? err.message : 'Failed to delete category.')
     }
-  };
+  }
 
   return (
     <div className="space-y-6">
-      <div className="card">
+      <Card className="p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Category Manager</h2>
@@ -149,20 +154,22 @@ export default function CategoriesManager() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={fetchCategories} className="btn-secondary">
+            <Button variant="secondary" size="sm" onClick={fetchCategories}>
+              <IconRefresh className="h-4 w-4" />
               Refresh
-            </button>
-            <button type="button" onClick={openCreateModal} className="btn-primary">
+            </Button>
+            <Button variant="primary" size="sm" onClick={openCreateModal}>
+              <IconPlusCircle className="h-4 w-4" />
               New category
-            </button>
+            </Button>
           </div>
         </div>
         {success && <p className="mt-4 text-sm font-medium text-emerald-600">{success}</p>}
-      </div>
+      </Card>
 
       {error && <AlertBanner variant="error" title="Action failed" message={error} />}
 
-      <div className="card">
+      <Card className="p-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">All categories</h2>
@@ -171,7 +178,7 @@ export default function CategoriesManager() {
         </div>
 
         {loading ? (
-          <div className="mt-6 text-sm text-slate-500">Loading categories…</div>
+          <div className="mt-6 text-sm text-slate-500">Loading categories...</div>
         ) : categories.length === 0 ? (
           <div className="mt-6 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
             No categories yet. Create your first category to start organizing transactions.
@@ -179,7 +186,7 @@ export default function CategoriesManager() {
         ) : (
           <div className="mt-6 overflow-x-auto">
             <table className="min-w-full">
-              <thead className="table-header">
+              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Name</th>
                   <th className="px-4 py-3 text-left">Section</th>
@@ -191,7 +198,7 @@ export default function CategoriesManager() {
               </thead>
               <tbody className="bg-white">
                 {categories.map((category) => (
-                  <tr key={category.id} className="table-row">
+                  <tr key={category.id} className="border-b border-slate-100 text-sm text-slate-700 hover:bg-slate-50">
                     <td className="px-4 py-3 text-sm text-slate-900">
                       <div className="font-medium">{category.name}</div>
                     </td>
@@ -211,20 +218,20 @@ export default function CategoriesManager() {
                     </td>
                     <td className="px-4 py-3 text-right text-sm">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           onClick={() => openEditModal(category)}
-                          className="btn-secondary"
                         >
                           Edit
-                        </button>
-                        <button
-                          type="button"
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
                           onClick={() => setDeleteTarget(category)}
-                          className="btn-destructive"
                         >
                           Delete
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -233,7 +240,7 @@ export default function CategoriesManager() {
             </table>
           </div>
         )}
-      </div>
+      </Card>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
@@ -251,62 +258,58 @@ export default function CategoriesManager() {
                   {editingId ? 'Update category details and hierarchy.' : 'Create a new category for transactions.'}
                 </p>
               </div>
-              <button type="button" onClick={closeModal} className="btn-ghost">
+              <Button variant="ghost" size="sm" onClick={closeModal}>
                 Close
-              </button>
+              </Button>
             </div>
 
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <div>
-                <label className="label" htmlFor="category-name">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="category-name">
                   Name
                 </label>
-                <input
+                <Input
                   id="category-name"
                   value={formState.name}
                   onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))}
-                  className="input w-full"
                   placeholder="e.g. Fuel"
                 />
               </div>
               <div>
-                <label className="label" htmlFor="category-type">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="category-type">
                   Type
                 </label>
-                <select
+                <Select
                   id="category-type"
                   value={formState.type}
                   onChange={(event) => setFormState((prev) => ({ ...prev, type: event.target.value }))}
-                  className="input w-full"
                 >
                   {TYPE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div>
-                <label className="label" htmlFor="category-section">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="category-section">
                   Section
                 </label>
-                <input
+                <Input
                   id="category-section"
                   value={formState.section}
                   onChange={(event) => setFormState((prev) => ({ ...prev, section: event.target.value }))}
-                  className="input w-full"
                   placeholder="e.g. ADMIN"
                 />
               </div>
               <div>
-                <label className="label" htmlFor="category-parent">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="category-parent">
                   Parent category
                 </label>
-                <select
+                <Select
                   id="category-parent"
                   value={formState.parent_id}
                   onChange={(event) => setFormState((prev) => ({ ...prev, parent_id: event.target.value }))}
-                  className="input w-full"
                 >
                   <option value="">None</option>
                   {parentOptions.map((category) => (
@@ -314,31 +317,30 @@ export default function CategoriesManager() {
                       {category.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div>
-                <label className="label" htmlFor="category-sort">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="category-sort">
                   Sort order
                 </label>
-                <input
+                <Input
                   id="category-sort"
                   type="number"
                   value={formState.sort_order}
                   onChange={(event) =>
                     setFormState((prev) => ({ ...prev, sort_order: Number(event.target.value) }))
                   }
-                  className="input w-full"
                 />
               </div>
             </div>
 
             <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
-              <button type="button" onClick={closeModal} className="btn-ghost">
+              <Button variant="ghost" size="sm" onClick={closeModal}>
                 Cancel
-              </button>
-              <button type="button" onClick={handleSubmit} className="btn-primary">
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleSubmit}>
                 {editingId ? 'Save changes' : 'Create category'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -356,16 +358,16 @@ export default function CategoriesManager() {
               Deleting <span className="font-semibold text-slate-700">{deleteTarget.name}</span> will remove it from future selections. Existing transactions keep their assigned category.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
-              <button type="button" onClick={() => setDeleteTarget(null)} className="btn-ghost">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
                 Cancel
-              </button>
-              <button type="button" onClick={handleDelete} className="btn-destructive">
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleDelete}>
                 Delete category
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
     </div>
-  );
+  )
 }

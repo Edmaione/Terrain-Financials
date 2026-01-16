@@ -1,4 +1,11 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import {
+  IconBarChart,
+  IconTrendingDown,
+  IconTrendingUp,
+  IconWallet,
+} from '@/components/ui/icons'
 import { generatePLReport, generateCashFlowData } from '@/lib/reports'
 import PLReport from '@/components/PLReport'
 import CashFlowChart from '@/components/CashFlowChart'
@@ -6,6 +13,9 @@ import ReportsFilters from '@/components/ReportsFilters'
 import { parseDateRange, getDateRangeLabel, DateRangePreset } from '@/lib/date-utils'
 import { resolveAccountSelection } from '@/lib/accounts'
 import PageHeader from '@/components/PageHeader'
+import AlertBanner from '@/components/AlertBanner'
+import { Card } from '@/components/ui/Card'
+import { buttonVariants } from '@/components/ui/Button'
 
 async function getReports(startDate: string, endDate: string, accountId?: string) {
   try {
@@ -63,12 +73,11 @@ export default async function ReportsPage({
 
   if (!selectedAccount) {
     return (
-      <div className="card border border-rose-200 bg-rose-50 text-rose-900">
-        <h2 className="text-sm font-semibold">No account available.</h2>
-        <p className="text-sm text-rose-700 mt-1">
-          Create or activate an account to view reports.
-        </p>
-      </div>
+      <AlertBanner
+        variant="error"
+        title="No account available."
+        message="Create or activate an account to view reports."
+      />
     )
   }
 
@@ -82,12 +91,13 @@ export default async function ReportsPage({
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Reports"
+        label="Reports"
+        title="Reporting insights"
         description="Financial reports and analysis for your selected account."
         actions={(
-          <a href="/transactions" className="btn-secondary">
+          <Link href="/transactions" className={buttonVariants({ variant: 'secondary' })}>
             View transactions
-          </a>
+          </Link>
         )}
       />
 
@@ -100,33 +110,46 @@ export default async function ReportsPage({
       />
 
       {error && (
-        <div className="card border border-rose-200 bg-rose-50 text-rose-900">
-          <h2 className="text-sm font-semibold">Reports are unavailable.</h2>
-          <p className="text-sm text-rose-700 mt-1">{error}</p>
-        </div>
+        <AlertBanner
+          variant="error"
+          title="Reports are unavailable."
+          message={error}
+        />
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <div className="card">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Total Income</p>
+        <Card className="p-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <IconTrendingUp className="h-5 w-5" />
+          </div>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Total Income</p>
           <p className="mt-2 text-2xl font-semibold text-emerald-600">
             ${plReport.total_income.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
-        </div>
-        <div className="card">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Total Expenses</p>
+        </Card>
+        <Card className="p-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-700">
+            <IconTrendingDown className="h-5 w-5" />
+          </div>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Total Expenses</p>
           <p className="mt-2 text-2xl font-semibold text-rose-600">
             ${plReport.total_expenses.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
-        </div>
-        <div className="card">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Gross Profit</p>
+        </Card>
+        <Card className="p-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700">
+            <IconBarChart className="h-5 w-5" />
+          </div>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Gross Profit</p>
           <p className="mt-2 text-2xl font-semibold text-slate-900">
             ${plReport.gross_profit.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
-        </div>
-        <div className="card">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Net Income</p>
+        </Card>
+        <Card className="p-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
+            <IconWallet className="h-5 w-5" />
+          </div>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Net Income</p>
           <p
             className={`mt-2 text-2xl font-semibold ${
               plReport.net_income >= 0 ? 'text-emerald-600' : 'text-rose-600'
@@ -134,10 +157,10 @@ export default async function ReportsPage({
           >
             ${plReport.net_income.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
-        </div>
+        </Card>
       </div>
 
-      <div className="card">
+      <Card className="p-6">
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold text-slate-900">Cash Flow</h2>
           <p className="text-xs text-slate-500">
@@ -148,14 +171,14 @@ export default async function ReportsPage({
           {cashFlowData.length > 0 ? (
             <CashFlowChart data={cashFlowData} />
           ) : (
-            <div className="card-muted text-sm text-slate-500">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
               No cash flow data for this period. Try expanding your date range.
             </div>
           )}
         </div>
-      </div>
+      </Card>
 
-      <div className="card">
+      <Card className="p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Profit and Loss Statement</h2>
@@ -168,12 +191,12 @@ export default async function ReportsPage({
           {plReport.lines.length > 0 ? (
             <PLReport report={plReport} />
           ) : (
-            <div className="card-muted text-sm text-slate-500">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
               No reviewed transactions in this period. Review transactions or adjust your range.
             </div>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

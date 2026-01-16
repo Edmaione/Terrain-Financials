@@ -74,7 +74,7 @@ export async function POST(
 
     if (shouldReview && hasCategoryId && categoryId && transaction) {
       try {
-        await createRuleFromApproval(transaction.payee, transaction.description, categoryId, null)
+        await createRuleFromApproval(transaction.payee, transaction.description, categoryId)
       } catch (ruleError) {
         console.warn('[API] Rule creation failed (non-fatal):', ruleError)
       }
