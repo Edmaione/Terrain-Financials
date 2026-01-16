@@ -72,11 +72,10 @@ export default function TransactionTable({
 
     try {
       const payload: Record<string, unknown> = {
-        transaction_id: transactionId,
-        mark_reviewed: markReviewed ?? true,
+        markReviewed: markReviewed ?? true,
       }
       if (categoryId !== undefined) {
-        payload.category_id = categoryId
+        payload.categoryId = categoryId
       }
       const response = await fetch(`/api/transactions/${transactionId}/approve`, {
         method: 'POST',
@@ -84,23 +83,25 @@ export default function TransactionTable({
         body: JSON.stringify(payload),
       })
 
-      if (!response.ok) {
-        let payload: unknown = null
-        try {
-          payload = await response.json()
-        } catch (parseError) {
-          payload = await response.text()
-        }
+      let responsePayload: unknown = null
+      try {
+        responsePayload = await response.json()
+      } catch (parseError) {
+        responsePayload = await response.text()
+      }
+
+      if (!response.ok || (typeof responsePayload === 'object' && responsePayload && 'ok' in responsePayload && !(responsePayload as { ok: boolean }).ok)) {
         console.error('Approve request failed', {
           transactionId,
           status: response.status,
-          payload,
+          payload: responsePayload,
         })
-        setErrorMessage(
-          typeof payload === 'object' && payload && 'error' in payload
-            ? String((payload as { error?: string }).error)
+        const errorText =
+          typeof responsePayload === 'object' && responsePayload && 'error' in responsePayload
+            ? String((responsePayload as { error?: string }).error)
             : 'Failed to approve transaction.'
-        )
+        setErrorMessage(errorText)
+        window.alert(errorText)
         return
       }
 
@@ -109,7 +110,9 @@ export default function TransactionTable({
       router.refresh()
     } catch (error) {
       console.error('Approve request failed', error)
-      setErrorMessage('Failed to approve transaction. Please try again.')
+      const errorText = 'Failed to approve transaction. Please try again.'
+      setErrorMessage(errorText)
+      window.alert(errorText)
     } finally {
       setProcessing(null)
     }
@@ -196,7 +199,6 @@ export default function TransactionTable({
                 const transferName = transaction.transfer_to_account?.name
                 const suggestedCategoryId =
                   transaction.ai_suggested_category || transaction.ai_suggested?.id || null
-                const hasSuggestion = Boolean(suggestedCategoryId || transaction.ai_confidence)
                 const isCategoryPickerOpen = openCategoryFor === transaction.id
                 return (
                   <tr
@@ -332,10 +334,6 @@ export default function TransactionTable({
                                   })
                                   return
                                 }
-                                if (hasSuggestion) {
-                                  void handleApprove({ transactionId: transaction.id })
-                                  return
-                                }
                                 setOpenCategoryFor(transaction.id)
                                 setSelectedCategoryId('')
                               }}
@@ -344,7 +342,7 @@ export default function TransactionTable({
                             >
                               {processing === transaction.id
                                 ? 'Approving...'
-                                : hasSuggestion
+                                : suggestedCategoryId
                                   ? 'Approve'
                                   : 'Categorize + Approve'}
                             </button>
