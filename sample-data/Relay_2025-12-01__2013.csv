@@ -1,0 +1,44 @@
+Date,Payee,Account #,Transaction Type,Description,Reference,Status,Amount,Currency,Balance
+12/31/2025,GUSTO,,Spend,,"TAX 646296 - Initiated By Unknown Payee",SETTLED,-154.69,USD,1163.45
+12/31/2025,GUSTO,,Spend,,"NET 646301 - Initiated By Unknown Payee",SETTLED,-442.66,USD,1318.14
+12/30/2025,WISE US INC,,Spend,,"WISE - Initiated By Unknown Payee",SETTLED,-155.26,USD,1760.80
+12/29/2025,NEXT INSUR (AP I,,Spend,,"NEXT INSUR - Initiated By Unknown Payee",SETTLED,-62.75,USD,1916.06
+12/27/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+880.22,USD,1978.81
+12/24/2025,GUSTO,,Spend,,"NET 332406 - Initiated By Unknown Payee",SETTLED,-359.03,USD,1098.59
+12/24/2025,GUSTO,,Spend,,"TAX 331425 - Initiated By Unknown Payee",SETTLED,-76.95,USD,1457.62
+12/23/2025,Income,5136,Receive-transfer,,"Transfer",SETTLED,+1283.55,USD,1534.57
+12/23/2025,WISE US INC,,Spend,,"WISE - Initiated By Unknown Payee",SETTLED,-390.66,USD,251.02
+12/22/2025,NEXT INSUR (AP I,,Spend,,"NEXT INSUR - Initiated By Unknown Payee",SETTLED,-83.53,USD,641.68
+12/20/2025,Profit,2014,Receive-transfer,,"Transfer",SETTLED,+94.42,USD,725.21
+12/18/2025,GUSTO,,Spend,,"TAX 115407 - Initiated By Unknown Payee",SETTLED,-658.12,USD,630.79
+12/18/2025,GUSTO,,Spend,,"NET 126643 - Initiated By Unknown Payee",SETTLED,-2061.90,USD,1288.91
+12/17/2025,Debt Paydown,1651,Receive-transfer,,"Transfer",SETTLED,+693.00,USD,3350.81
+12/17/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+145.32,USD,2657.81
+12/16/2025,Wise Inc,,Spend,,"WISE - Initiated By Unknown Payee",SETTLED,-390.66,USD,2512.49
+12/16/2025,NAVITAS CREDIT C,,Spend,,"CASH CONC - Initiated By Unknown Payee",SETTLED,-205.05,USD,2903.15
+12/16/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+343.96,USD,3108.20
+12/15/2025,NEXT INSUR (AP I,,Spend,,"NEXT INSUR - Initiated By Unknown Payee",SETTLED,-92.48,USD,2764.24
+12/13/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+1838.80,USD,2856.72
+12/12/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+661.93,USD,1017.92
+12/11/2025,GUSTO,,Spend,,"TAX 833394 - Initiated By Unknown Payee",SETTLED,-911.64,USD,355.99
+12/11/2025,GUSTO,,Spend,,"NET 833354 - Initiated By Unknown Payee",SETTLED,-2739.49,USD,1267.63
+12/9/2025,Wise Inc,,Spend,,"WISE - Initiated By Unknown Payee",SETTLED,-500.85,USD,4007.12
+12/9/2025,Wise Inc,,Spend,,"WISE - Initiated By Unknown Payee",SETTLED,-30.00,USD,4507.97
+12/9/2025,Debt Paydown,1651,Receive-transfer,,"Transfer",SETTLED,+600.00,USD,4537.97
+12/9/2025,Income,5136,Receive-transfer,,"Transfer",SETTLED,+2055.85,USD,3937.97
+12/9/2025,Profit,2014,Receive-transfer,,"Transfer",SETTLED,+921.73,USD,1882.12
+12/9/2025,Check #000009,,Spend,,"Check Payment | 000009 - Sent By ",SETTLED,-1835.00,USD,960.39
+12/9/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+1435.76,USD,2795.39
+12/8/2025,NEXT INSUR (AP I,,Spend,,"NEXT INSUR - Initiated By Unknown Payee",SETTLED,-114.26,USD,1359.63
+12/8/2025,Check #000101,,Spend,,"Check Payment | 000101 - Sent By ",SETTLED,-800.00,USD,1473.89
+12/5/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+1890.68,USD,2273.89
+12/4/2025,GUSTO,,Spend,,"TAX 599219 - Initiated By Unknown Payee",SETTLED,-420.76,USD,383.21
+12/4/2025,GUSTO,,Spend,,"NET 599591 - Initiated By Unknown Payee",SETTLED,-957.71,USD,803.97
+12/4/2025,GUSTO,,Spend,,"NET 599591 - Initiated By Unknown Payee",SETTLED,-2968.60,USD,1761.68
+12/4/2025,GUSTO,,Spend,,"TAX 599593 - Initiated By Unknown Payee",SETTLED,-1085.55,USD,4730.28
+12/4/2025,Wise Inc,,Spend,,"WISE - Initiated By Unknown Payee",SETTLED,-500.85,USD,5815.83
+12/3/2025,HANOVER INS,,Spend,,"BILLPAY - Initiated By Unknown Payee",SETTLED,-833.75,USD,6316.68
+12/2/2025,GUSTO,,Spend,,"FEE 528190 - Initiated By Unknown Payee",SETTLED,-95.62,USD,7150.43
+12/2/2025,Income,5136,Receive-transfer,,"Transfer automation: AJ + Profit+ Opex Only (Cash Poor)",SETTLED,+3146.62,USD,7246.05
+12/1/2025,T-MOBILE,,Spend,,"T-MOBILE  |  PCS SVC |  9648539 - Initiated By Unknown Payee",SETTLED,-172.00,USD,4099.43
+12/1/2025,NEXT INSUR (AP I,,Spend,,"NEXT INSUR - Initiated By Unknown Payee",SETTLED,-103.10,USD,4271.43
