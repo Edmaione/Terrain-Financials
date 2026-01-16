@@ -221,13 +221,23 @@ async function getHistoricalTransactionsForPayee(
  * Increment usage count for a rule
  */
 async function incrementRuleUsage(ruleId: string): Promise<void> {
-  await supabaseAdmin
+  // Fetch current rule
+  const { data: rule } = await supabaseAdmin
     .from('categorization_rules')
-    .update({
-      times_applied: supabaseAdmin.sql`times_applied + 1`,
-      last_used: new Date().toISOString(),
-    })
-    .eq('id', ruleId);
+    .select('times_applied')
+    .eq('id', ruleId)
+    .single();
+
+  if (rule) {
+    // Update with incremented value
+    await supabaseAdmin
+      .from('categorization_rules')
+      .update({
+        times_applied: (rule.times_applied || 0) + 1,
+        last_used: new Date().toISOString(),
+      })
+      .eq('id', ruleId);
+  }
 }
 
 /**
