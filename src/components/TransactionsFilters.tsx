@@ -24,18 +24,25 @@ export default function TransactionsFilters({
   startDate,
   endDate,
   lastUpdated,
+  accounts,
+  accountId,
+  query,
 }: {
   reviewed?: string
   range: string
   startDate?: string
   endDate?: string
   lastUpdated: string
+  accounts: Array<{ id: string; name: string; institution?: string | null }>
+  accountId?: string
+  query?: string
 }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [customStart, setCustomStart] = useState(startDate || '')
   const [customEnd, setCustomEnd] = useState(endDate || '')
+  const [searchValue, setSearchValue] = useState(query || '')
 
   useEffect(() => {
     if (range === 'custom') {
@@ -43,6 +50,23 @@ export default function TransactionsFilters({
       setCustomEnd(endDate || '')
     }
   }, [range, startDate, endDate])
+
+  useEffect(() => {
+    setSearchValue(query || '')
+  }, [query])
+
+  useEffect(() => {
+    const trimmed = searchValue.trim()
+    if (trimmed === (query || '')) {
+      return
+    }
+
+    const handler = window.setTimeout(() => {
+      updateParams({ q: trimmed.length > 0 ? trimmed : null })
+    }, 400)
+
+    return () => window.clearTimeout(handler)
+  }, [searchValue, query])
 
   const activeReviewed = reviewed ?? 'all'
 
@@ -76,7 +100,21 @@ export default function TransactionsFilters({
   }
 
   const handleReviewChange = (value: string) => {
-    updateParams({ reviewed: value === 'all' ? null : value })
+    updateParams({ reviewed: value })
+  }
+
+  const handleAccountChange = (value: string) => {
+    updateParams({ account_id: value })
+  }
+
+  const clearFilters = () => {
+    updateParams({
+      range: 'last_3_months',
+      reviewed: 'false',
+      start: null,
+      end: null,
+      q: null,
+    })
   }
 
   const applyCustomRange = () => {
@@ -84,7 +122,7 @@ export default function TransactionsFilters({
   }
 
   return (
-    <div className="card space-y-4">
+    <div className="card space-y-4 sticky top-4 z-20">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-sm font-medium text-slate-700">Filters</p>
@@ -98,7 +136,51 @@ export default function TransactionsFilters({
           >
             Refresh
           </button>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="btn-secondary"
+          >
+            Clear filters
+          </button>
           <span className="text-xs text-slate-500">Updated {lastUpdated}</span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(260px,1.4fr)] lg:items-center">
+        <div className="space-y-2">
+          <label className="label" htmlFor="account-filter">
+            Account
+          </label>
+          <select
+            id="account-filter"
+            value={accountId || ''}
+            onChange={(event) => handleAccountChange(event.target.value)}
+            className="input w-full"
+            aria-label="Select account"
+          >
+            {accounts.length === 0 && <option value="">No accounts</option>}
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+                {account.institution ? ` · ${account.institution}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <label className="label" htmlFor="transaction-search">
+            Search
+          </label>
+          <input
+            id="transaction-search"
+            type="search"
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.target.value)}
+            placeholder="Search payee, description, or reference"
+            className="input w-full"
+            aria-label="Search transactions"
+          />
         </div>
       </div>
 

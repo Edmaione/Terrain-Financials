@@ -1,6 +1,8 @@
+import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
 import TransactionTable from '@/components/TransactionTable'
 import TransactionsFilters from '@/components/TransactionsFilters'
+import { resolveAccountSelection } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,11 +55,15 @@ async function getTransactions({
   range,
   start,
   end,
+  accountId,
+  query: searchQuery,
 }: {
   reviewed?: string
   range: string
   start?: string
   end?: string
+  accountId: string
+  query?: string
 }) {
   const debugDataFlow = process.env.DEBUG_DATA_FLOW === 'true'
   const dateRange = getDateRange(range, start, end)
@@ -69,10 +75,13 @@ async function getTransactions({
       account:accounts!transactions_account_id_fkey(name),
       transfer_to_account:accounts!transactions_transfer_to_account_id_fkey(name),
       category:categories!category_id(name, section),
-      ai_suggested:categories!ai_suggested_category(name, section)
+      ai_suggested:categories!ai_suggested_category(id, name, section)
     `)
     .order('date', { ascending: false })
 
+  if (accountId) {
+    query = query.eq('account_id', accountId)
+  }
   if (reviewed === 'false') {
     query = query.eq('reviewed', false)
   }
@@ -84,6 +93,10 @@ async function getTransactions({
   }
   if (dateRange.end) {
     query = query.lte('date', dateRange.end)
+  }
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const search = searchQuery.trim()
+    query = query.or(`payee.ilike.%${search}%,description.ilike.%${search}%,reference.ilike.%${search}%`)
   }
 
   const { data, error } = await query
@@ -123,19 +136,71 @@ async function getCategories() {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: { reviewed?: string; range?: string; start?: string; end?: string }
+  searchParams: {
+    reviewed?: string
+    range?: string
+    start?: string
+    end?: string
+    account_id?: string
+    q?: string
+  }
 }) {
-  const activeRange = searchParams.range ?? 'this_month'
+  const { accounts, selectedAccount, needsRedirect } = await resolveAccountSelection(
+    searchParams.account_id
+  )
+
+  const activeRange = searchParams.range ?? 'last_3_months'
+  const activeReviewed = searchParams.reviewed ?? 'false'
+
+  const needsDefaultFilters =
+    !searchParams.range || !searchParams.reviewed || !searchParams.account_id
+
+  if (selectedAccount && (needsRedirect || needsDefaultFilters)) {
+    const params = new URLSearchParams()
+    if (searchParams.q) {
+      params.set('q', searchParams.q)
+    }
+    if (searchParams.start) {
+      params.set('start', searchParams.start)
+    }
+    if (searchParams.end) {
+      params.set('end', searchParams.end)
+    }
+    params.set('account_id', selectedAccount.id)
+    params.set('range', activeRange)
+    params.set('reviewed', activeReviewed)
+    redirect(`/transactions?${params.toString()}`)
+  }
+
+  if (!selectedAccount) {
+    return (
+      <div className="card border border-rose-200 bg-rose-50 text-rose-900">
+        <h2 className="text-sm font-semibold">No account available.</h2>
+        <p className="text-sm text-rose-700 mt-1">
+          Create or activate an account to view transactions.
+        </p>
+      </div>
+    )
+  }
+
   const allTimeParams = new URLSearchParams()
-  if (searchParams.reviewed) {
-    allTimeParams.set('reviewed', searchParams.reviewed)
+  if (activeReviewed) {
+    allTimeParams.set('reviewed', activeReviewed)
+  }
+  if (selectedAccount) {
+    allTimeParams.set('account_id', selectedAccount.id)
+  }
+  if (searchParams.q) {
+    allTimeParams.set('q', searchParams.q)
   }
   allTimeParams.set('range', 'all')
   const { data: transactions, error, dateRange } = await getTransactions({
-    reviewed: searchParams.reviewed,
+    reviewed: activeReviewed,
     range: activeRange,
     start: searchParams.start,
     end: searchParams.end,
+    accountId: selectedAccount?.id ?? '',
+    query: searchParams.q,
   })
   const categories = await getCategories()
 
@@ -143,7 +208,13 @@ export default async function TransactionsPage({
     hour: 'numeric',
     minute: '2-digit',
   })
-  const filterSummary = `${dateRange.label}${searchParams.reviewed ? ` · ${searchParams.reviewed === 'true' ? 'Reviewed' : 'Unreviewed'}` : ' · All statuses'}`
+  const reviewedLabel =
+    activeReviewed === 'true'
+      ? 'Reviewed'
+      : activeReviewed === 'false'
+        ? 'Unreviewed'
+        : 'All statuses'
+  const filterSummary = `${dateRange.label} · ${reviewedLabel}`
   const showDebugPanel = process.env.DEBUG_DATA_FLOW === 'true'
 
   return (
@@ -156,11 +227,14 @@ export default async function TransactionsPage({
       </div>
 
       <TransactionsFilters
-        reviewed={searchParams.reviewed}
+        reviewed={activeReviewed}
         range={activeRange}
         startDate={dateRange.start}
         endDate={dateRange.end}
         lastUpdated={lastUpdated}
+        accounts={accounts}
+        accountId={selectedAccount?.id}
+        query={searchParams.q}
       />
 
       {error && (
@@ -185,7 +259,7 @@ export default async function TransactionsPage({
           <div className="font-semibold text-slate-700">Data Health</div>
           <div className="mt-2 grid gap-1 sm:grid-cols-2">
             <div>Reviewed filter: {searchParams.reviewed ?? 'all'}</div>
-            <div>Date range: {dateRange.start ?? '—'} → {dateRange.end ?? '—'}</div>
+            <div>Date range: {dateRange.start ?? 'N/A'} → {dateRange.end ?? 'N/A'}</div>
             <div>Range preset: {activeRange}</div>
             <div>Returned rows: {transactions.length}</div>
           </div>
@@ -197,6 +271,7 @@ export default async function TransactionsPage({
         filterSummary={filterSummary}
         allTimeHref={`/transactions?${allTimeParams.toString()}`}
         categories={categories}
+        accountId={selectedAccount?.id ?? ''}
       />
     </div>
   );

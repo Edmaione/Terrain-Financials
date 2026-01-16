@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import AlertBanner from '@/components/AlertBanner'
+import { apiRequest } from '@/lib/api-client'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -19,18 +21,26 @@ export default function TransactionTable({
   filterSummary,
   allTimeHref = '/transactions?range=all',
   categories,
+  accountId,
 }: {
   transactions: any[]
   filterSummary: string
   allTimeHref?: string
   categories: Array<{ id: string; name: string; section?: string | null }>
+  accountId: string
 }) {
   const [processing, setProcessing] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [openCategoryFor, setOpenCategoryFor] = useState<string | null>(null)
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [bulkCategoryId, setBulkCategoryId] = useState<string>('')
+  const [bulkProcessing, setBulkProcessing] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    setSelectedIds([])
+  }, [transactions])
 
   useEffect(() => {
     if (!errorMessage) return
@@ -38,25 +48,23 @@ export default function TransactionTable({
     return () => window.clearTimeout(timeout)
   }, [errorMessage])
 
-  const filteredTransactions = useMemo(() => {
-    if (!searchQuery.trim()) return transactions
-    const query = searchQuery.toLowerCase()
-    return transactions.filter((transaction) => {
-      const haystack = [
-        transaction.payee,
-        transaction.description,
-        transaction.account?.name,
-        transaction.transfer_to_account?.name,
-        transaction.category?.name,
-        transaction.ai_suggested?.name,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
+  const allSelected = useMemo(() => {
+    return transactions.length > 0 && selectedIds.length === transactions.length
+  }, [transactions.length, selectedIds.length])
 
-      return haystack.includes(query)
-    })
-  }, [searchQuery, transactions])
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds([])
+      return
+    }
+    setSelectedIds(transactions.map((transaction) => transaction.id))
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    )
+  }
 
   const handleApprove = async ({
     transactionId,
@@ -77,44 +85,56 @@ export default function TransactionTable({
       if (categoryId !== undefined) {
         payload.categoryId = categoryId
       }
-      const response = await fetch(`/api/transactions/${transactionId}/approve`, {
+
+      await apiRequest(`/api/transactions/${transactionId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-
-      let responsePayload: unknown = null
-      try {
-        responsePayload = await response.json()
-      } catch (parseError) {
-        responsePayload = await response.text()
-      }
-
-      if (!response.ok || (typeof responsePayload === 'object' && responsePayload && 'ok' in responsePayload && !(responsePayload as { ok: boolean }).ok)) {
-        console.error('Approve request failed', {
-          transactionId,
-          status: response.status,
-          payload: responsePayload,
-        })
-        const errorText =
-          typeof responsePayload === 'object' && responsePayload && 'error' in responsePayload
-            ? String((responsePayload as { error?: string }).error)
-            : 'Failed to approve transaction.'
-        setErrorMessage(errorText)
-        window.alert(errorText)
-        return
-      }
 
       setOpenCategoryFor(null)
       setSelectedCategoryId('')
       router.refresh()
     } catch (error) {
       console.error('Approve request failed', error)
-      const errorText = 'Failed to approve transaction. Please try again.'
+      const errorText = error instanceof Error ? error.message : 'Failed to approve transaction.'
       setErrorMessage(errorText)
-      window.alert(errorText)
     } finally {
-      setProcessing(null);
+      setProcessing(null)
+    }
+  }
+
+  const handleBulkAction = async (action: 'mark_reviewed' | 'set_category' | 'approve') => {
+    if (selectedIds.length === 0) return
+
+    if (action === 'set_category' && !bulkCategoryId) {
+      setErrorMessage('Select a category before applying bulk updates.')
+      return
+    }
+
+    setBulkProcessing(true)
+    setErrorMessage(null)
+
+    try {
+      await apiRequest('/api/transactions/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ids: selectedIds,
+          action,
+          categoryId: action === 'set_category' ? bulkCategoryId : undefined,
+        }),
+      })
+
+      setSelectedIds([])
+      setBulkCategoryId('')
+      router.refresh()
+    } catch (error) {
+      console.error('Bulk update failed', error)
+      const errorText = error instanceof Error ? error.message : 'Bulk update failed.'
+      setErrorMessage(errorText)
+    } finally {
+      setBulkProcessing(false)
     }
   }
 
@@ -123,7 +143,7 @@ export default function TransactionTable({
       <div className="card text-center py-12">
         <p className="text-gray-500">No transactions found.</p>
         <p className="mt-2 text-sm text-gray-400">
-          Try adjusting filters, or upload a file to get started.
+          Try expanding the date range, switching accounts, or uploading a file.
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500">
           <span>Active filters: {filterSummary}</span>
@@ -132,244 +152,304 @@ export default function TransactionTable({
           </a>
         </div>
       </div>
-    );
+    )
   }
 
   return (
     <div className="card overflow-hidden p-0">
       {errorMessage && (
-        <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-800">
-          {errorMessage}
+        <div className="border-b border-slate-200 px-6 py-4">
+          <AlertBanner variant="error" title="Action failed" message={errorMessage} />
         </div>
       )}
+
+      {selectedIds.length > 0 && (
+        <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                {selectedIds.length} selected
+              </p>
+              <p className="text-xs text-slate-500">Bulk actions apply to selected rows.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleBulkAction('mark_reviewed')}
+                className="btn-secondary"
+                disabled={bulkProcessing}
+              >
+                Mark reviewed
+              </button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={bulkCategoryId}
+                  onChange={(event) => setBulkCategoryId(event.target.value)}
+                  className="input w-48 text-xs"
+                  aria-label="Select bulk category"
+                >
+                  <option value="">Select category</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.section ? `${category.section} · ${category.name}` : category.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => handleBulkAction('set_category')}
+                  className="btn-secondary"
+                  disabled={bulkProcessing || !bulkCategoryId}
+                >
+                  Apply category
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleBulkAction('approve')}
+                className="btn-primary"
+                disabled={bulkProcessing}
+              >
+                Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Transactions</h2>
           <p className="text-xs text-slate-500">
-            Showing {filteredTransactions.length} of {transactions.length} · {filterSummary}
+            Showing {transactions.length} · {filterSummary}
           </p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search payee, description, or account"
-            className="input w-full sm:w-72"
-          />
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span>Account scoped</span>
+          <span className="rounded-full bg-slate-100 px-2 py-1">{accountId ? 'Active' : 'None'}</span>
         </div>
       </div>
-      {filteredTransactions.length === 0 ? (
-        <div className="px-6 py-12 text-center">
-          <p className="text-gray-500">No transactions match your filters.</p>
-          <p className="mt-2 text-sm text-gray-400">Try a different search or reset the filter.</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  Account
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-slate-100">
-              {filteredTransactions.map((transaction, index) => {
-                const isPositive = transaction.amount >= 0
-                const accountName = transaction.account?.name || 'Unassigned'
-                const transferName = transaction.transfer_to_account?.name
-                const suggestedCategoryId =
-                  transaction.ai_suggested_category || transaction.ai_suggested?.id || null
-                const isCategoryPickerOpen = openCategoryFor === transaction.id
-                return (
-                  <tr
-                    key={transaction.id}
-                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} ${!transaction.reviewed ? 'ring-1 ring-inset ring-yellow-100' : ''}`}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
-                      {transaction.date ? dateFormatter.format(new Date(transaction.date)) : '--'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-900">
-                      <div className="font-medium">{transaction.payee || 'Unknown payee'}</div>
-                      <div className="text-xs text-slate-500">{transaction.description || '—'}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-900">
-                      <div className="font-medium">{accountName}</div>
-                      {transferName && (
-                        <div className="mt-1 text-xs text-slate-500">
-                          Transfer: {accountName} → {transferName}
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all transactions"
+                />
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Date
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Description
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Account
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Category
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Amount
+              </th>
+              <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-slate-100">
+            {transactions.map((transaction, index) => {
+              const isPositive = transaction.amount >= 0
+              const accountName = transaction.account?.name || 'Unassigned'
+              const transferName = transaction.transfer_to_account?.name
+              const suggestedCategoryId =
+                transaction.ai_suggested_category || transaction.ai_suggested?.id || null
+              const isCategoryPickerOpen = openCategoryFor === transaction.id
+              return (
+                <tr
+                  key={transaction.id}
+                  className={`${
+                    index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'
+                  } ${!transaction.reviewed ? 'ring-1 ring-inset ring-yellow-100' : ''} hover:bg-slate-50 focus-within:bg-slate-50`}
+                >
+                  <td className="px-6 py-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(transaction.id)}
+                      onChange={() => toggleSelect(transaction.id)}
+                      aria-label={`Select transaction ${transaction.payee}`}
+                    />
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                    {transaction.date ? dateFormatter.format(new Date(transaction.date)) : '--'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-900">
+                    <div className="font-medium">{transaction.payee || 'Unknown payee'}</div>
+                    <div className="text-xs text-slate-500">{transaction.description || 'No description'}</div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-900">
+                    <div className="font-medium">{accountName}</div>
+                    {transferName && (
+                      <div className="mt-1 text-xs text-slate-500">
+                        Transfer: {accountName} → {transferName}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    {transaction.reviewed ? (
+                      <div>
+                        <div className="font-medium text-slate-900">
+                          {transaction.category?.name || 'Uncategorized'}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      {transaction.reviewed ? (
-                        <div>
-                          <div className="font-medium text-slate-900">
-                            {transaction.category?.name || 'Uncategorized'}
-                          </div>
-                          {transaction.category?.section && (
-                            <div className="text-xs text-slate-500">{transaction.category.section}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <div>
-                          {transaction.ai_suggested?.name ? (
-                            <div className="font-medium text-blue-600">
-                              {transaction.ai_suggested.name}
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOpenCategoryFor(transaction.id)
-                                setSelectedCategoryId('')
-                              }}
-                              className="font-medium text-blue-600 hover:text-blue-700"
-                            >
-                              Needs categorization
-                            </button>
-                          )}
-                          {transaction.ai_confidence && (
-                            <div className="text-xs text-slate-500">
-                              {Math.round(transaction.ai_confidence * 100)}% confidence
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td
-                      className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${
-                        isPositive ? 'text-emerald-600' : 'text-rose-600'
-                      }`}
-                    >
-                      {isPositive ? '+' : ''}
-                      {currencyFormatter.format(Math.abs(transaction.amount || 0))}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="flex flex-col items-center gap-2">
-                        {transaction.is_transfer && (
-                          <span className="badge badge-purple">Transfer</span>
-                        )}
-                        {transaction.reviewed ? (
-                          <span className="badge badge-green">Reviewed</span>
-                        ) : (
-                          <span className="badge badge-amber">Pending</span>
+                        {transaction.category?.section && (
+                          <div className="text-xs text-slate-500">{transaction.category.section}</div>
                         )}
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {!transaction.reviewed && (
-                        <div className="flex flex-col items-end gap-2">
-                          {isCategoryPickerOpen ? (
-                            <div className="flex flex-col items-end gap-2">
-                              <div className="flex flex-col items-end gap-2">
-                                <select
-                                  value={selectedCategoryId}
-                                  onChange={(event) => setSelectedCategoryId(event.target.value)}
-                                  className="input w-48 text-xs"
-                                >
-                                  <option value="">Select category</option>
-                                  {categories.map((category) => (
-                                    <option key={category.id} value={category.id}>
-                                      {category.section ? `${category.section} · ${category.name}` : category.name}
-                                    </option>
-                                  ))}
-                                </select>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleApprove({
-                                        transactionId: transaction.id,
-                                        categoryId: selectedCategoryId || null,
-                                      })
-                                    }
-                                    disabled={
-                                      processing === transaction.id || selectedCategoryId.length === 0
-                                    }
-                                    className="btn-primary text-xs disabled:opacity-50"
-                                  >
-                                    {processing === transaction.id ? 'Approving...' : 'Approve'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenCategoryFor(null)
-                                      setSelectedCategoryId('')
-                                    }}
-                                    className="btn-secondary text-xs"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (suggestedCategoryId) {
-                                  void handleApprove({
-                                    transactionId: transaction.id,
-                                    categoryId: suggestedCategoryId,
-                                  })
-                                  return
-                                }
-                                setOpenCategoryFor(transaction.id)
-                                setSelectedCategoryId('')
-                              }}
-                              disabled={processing === transaction.id}
-                              className="btn-primary text-xs disabled:opacity-50"
-                            >
-                              {processing === transaction.id
-                                ? 'Approving...'
-                                : suggestedCategoryId
-                                  ? 'Approve'
-                                  : 'Categorize + Approve'}
-                            </button>
-                          )}
+                    ) : (
+                      <div>
+                        {transaction.ai_suggested?.name ? (
+                          <div className="font-medium text-blue-600">
+                            {transaction.ai_suggested.name}
+                          </div>
+                        ) : (
                           <button
                             type="button"
-                            onClick={() =>
-                              handleApprove({
-                                transactionId: transaction.id,
-                                markReviewed: true,
-                              })
-                            }
-                            disabled={processing === transaction.id}
-                            className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                            onClick={() => {
+                              setOpenCategoryFor(transaction.id)
+                              setSelectedCategoryId('')
+                            }}
+                            className="font-medium text-blue-600 hover:text-blue-700"
                           >
-                            Mark reviewed
+                            Needs categorization
                           </button>
-                        </div>
+                        )}
+                        {transaction.ai_confidence && (
+                          <div className="text-xs text-slate-500">
+                            {Math.round(transaction.ai_confidence * 100)}% confidence
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td
+                    className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${
+                      isPositive ? 'text-emerald-600' : 'text-rose-600'
+                    }`}
+                  >
+                    {isPositive ? '+' : ''}
+                    {currencyFormatter.format(Math.abs(transaction.amount || 0))}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      {transaction.is_transfer && (
+                        <span className="badge badge-purple">Transfer</span>
                       )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      {transaction.reviewed ? (
+                        <span className="badge badge-green">Reviewed</span>
+                      ) : (
+                        <span className="badge badge-amber">Pending</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    {!transaction.reviewed && (
+                      <div className="flex flex-col items-end gap-2">
+                        {isCategoryPickerOpen ? (
+                          <div className="flex flex-col items-end gap-2">
+                            <div className="flex flex-col items-end gap-2">
+                              <select
+                                value={selectedCategoryId}
+                                onChange={(event) => setSelectedCategoryId(event.target.value)}
+                                className="input w-48 text-xs"
+                              >
+                                <option value="">Select category</option>
+                                {categories.map((category) => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.section ? `${category.section} · ${category.name}` : category.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleApprove({
+                                      transactionId: transaction.id,
+                                      categoryId: selectedCategoryId || null,
+                                    })
+                                  }
+                                  disabled={processing === transaction.id || selectedCategoryId.length === 0}
+                                  className="btn-primary text-xs disabled:opacity-50"
+                                >
+                                  {processing === transaction.id ? 'Approving...' : 'Approve'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenCategoryFor(null)
+                                    setSelectedCategoryId('')
+                                  }}
+                                  className="btn-secondary text-xs"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (suggestedCategoryId) {
+                                void handleApprove({
+                                  transactionId: transaction.id,
+                                  categoryId: suggestedCategoryId,
+                                })
+                                return
+                              }
+                              setOpenCategoryFor(transaction.id)
+                              setSelectedCategoryId('')
+                            }}
+                            disabled={processing === transaction.id}
+                            className="btn-primary text-xs disabled:opacity-50"
+                          >
+                            {processing === transaction.id
+                              ? 'Approving...'
+                              : suggestedCategoryId
+                                ? 'Approve'
+                                : 'Categorize + Approve'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleApprove({
+                              transactionId: transaction.id,
+                              markReviewed: true,
+                            })
+                          }
+                          disabled={processing === transaction.id}
+                          className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                        >
+                          Mark reviewed
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
-  );
+  )
 }

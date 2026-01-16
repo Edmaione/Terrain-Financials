@@ -68,7 +68,7 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true, success: true });
+    return NextResponse.json({ ok: true, data: { success: true } });
   } catch (error) {
     console.error('[API] Transaction update error:', error);
     return NextResponse.json(

@@ -10,6 +10,7 @@ export default function Navigation() {
     { href: '/', label: 'Dashboard' },
     { href: '/upload', label: 'Upload CSV' },
     { href: '/transactions', label: 'Transactions' },
+    { href: '/categories', label: 'Categories' },
     { href: '/reports', label: 'Reports' },
   ]
 
