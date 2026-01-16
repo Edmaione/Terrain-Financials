@@ -95,7 +95,7 @@ export default async function ReportsPage({
         title="Reporting insights"
         description="Financial reports and analysis for your selected account."
         actions={(
-          <Link href="/transactions" className={buttonVariants({ variant: 'secondary' })}>
+          <Link href="/transactions" className={buttonVariants({ variant: 'secondary', className: 'text-slate-700' })}>
             View transactions
           </Link>
         )}
