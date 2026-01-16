@@ -5,7 +5,7 @@ export type IconProps = SVGProps<SVGSVGElement>
 const baseProps = {
   fill: 'none',
   stroke: 'currentColor',
-  strokeWidth: 1.6,
+  strokeWidth: 1.5,
   strokeLinecap: 'round',
   strokeLinejoin: 'round',
 } satisfies SVGProps<SVGSVGElement>

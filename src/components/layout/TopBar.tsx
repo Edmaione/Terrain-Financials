@@ -23,8 +23,8 @@ export default function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/80 backdrop-blur">
-      <div className="flex h-16 items-center gap-3 px-4 lg:px-8">
+    <header className="sticky top-0 z-30 border-b border-slate-200/40 bg-white/80 backdrop-blur">
+      <div className="flex h-14 items-center gap-3 px-6 lg:px-8">
         <Button
           variant="ghost"
           size="icon"

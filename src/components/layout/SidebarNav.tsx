@@ -71,7 +71,7 @@ export default function SidebarNav({ onNavigate }: { onNavigate?: () => void }) 
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     )}
                   >
-                    <Icon className={cn('h-4 w-4', isActive ? 'text-white' : 'text-slate-500')} />
+                    <Icon className={cn('h-[18px] w-[18px]', isActive ? 'text-white' : 'text-slate-500')} />
                     {item.label}
                   </Link>
                 )

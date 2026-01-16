@@ -117,7 +117,7 @@ export default async function Dashboard() {
   const data = await getDashboardData()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         label="Dashboard"
         title="Maione Landscapes LLC"
