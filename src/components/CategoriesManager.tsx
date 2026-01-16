@@ -154,11 +154,11 @@ export default function CategoriesManager() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={fetchCategories}>
+            <Button variant="secondary" size="sm" onClick={fetchCategories} className="text-slate-700">
               <IconRefresh className="h-4 w-4" />
               Refresh
             </Button>
-            <Button variant="primary" size="sm" onClick={openCreateModal}>
+            <Button variant="primary" size="sm" onClick={openCreateModal} className="text-white">
               <IconPlusCircle className="h-4 w-4" />
               New category
             </Button>

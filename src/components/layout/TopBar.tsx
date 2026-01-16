@@ -28,7 +28,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden"
+          className="lg:hidden text-slate-700"
           onClick={onMenuClick}
           aria-label="Open navigation menu"
         >
@@ -47,7 +47,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
           <div className="rounded-full border border-slate-200/70 bg-white px-3 py-1 text-xs text-slate-600">
             Updated {timeLabel}
           </div>
-          <Button variant="secondary" size="sm" onClick={handleRefresh} aria-label="Refresh data">
+          <Button variant="secondary" size="sm" onClick={handleRefresh} aria-label="Refresh data" className="text-slate-700">
             <IconRefresh className="h-4 w-4" />
             Refresh
           </Button>
@@ -55,7 +55,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
         <Button
           variant="secondary"
           size="icon"
-          className="md:hidden"
+          className="md:hidden text-slate-700"
           onClick={handleRefresh}
           aria-label="Refresh data"
         >

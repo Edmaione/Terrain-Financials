@@ -235,10 +235,10 @@ export default async function TransactionsPage({
         description="Review, categorize, and understand every transaction across your accounts."
         actions={(
           <>
-            <Link href={`/transactions?${refreshParams.toString()}`} className={buttonVariants({ variant: 'secondary' })}>
+            <Link href={`/transactions?${refreshParams.toString()}`} className={buttonVariants({ variant: 'secondary', className: 'text-slate-700' })}>
               Refresh
             </Link>
-            <Link href="/upload" className={buttonVariants({ variant: 'primary' })}>
+            <Link href="/upload" className={buttonVariants({ variant: 'primary', className: 'text-white' })}>
               Upload CSV
             </Link>
           </>
