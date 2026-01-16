@@ -12,19 +12,19 @@ export default function WeeklySummary({ summary }: { summary: WeeklySummaryType 
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+        <div className="card-muted">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Income</p>
           <p className="mt-2 text-xl font-semibold text-emerald-600">
             +${summary.total_income.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+        <div className="card-muted">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Expenses</p>
           <p className="mt-2 text-xl font-semibold text-rose-600">
             -${summary.total_expenses.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+        <div className="card-muted">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Net Change</p>
           <p
             className={`mt-2 text-xl font-semibold ${

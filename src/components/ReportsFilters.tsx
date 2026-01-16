@@ -67,7 +67,7 @@ export default function ReportsFilters({
 
   return (
     <div className="card space-y-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(200px,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)]">
         <div>
           <label className="label" htmlFor="reports-account">
             Account

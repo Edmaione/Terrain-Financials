@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { generateWeeklySummary } from '@/lib/reports'
 import WeeklySummary from '@/components/WeeklySummary'
 import DashboardStats from '@/components/DashboardStats'
+import PageHeader from '@/components/PageHeader'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +25,14 @@ async function getDashboardData() {
 
     if (unreviewedError) {
       console.error('[dashboard] Failed to fetch unreviewed count', unreviewedError)
+    }
+
+    const { count: transactionCount, error: transactionCountError } = await supabaseAdmin
+      .from('transactions')
+      .select('*', { count: 'exact', head: true })
+
+    if (transactionCountError) {
+      console.error('[dashboard] Failed to fetch transaction count', transactionCountError)
     }
 
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
@@ -69,6 +78,7 @@ async function getDashboardData() {
     return {
       weeklySummary,
       unreviewedCount: unreviewedCount || 0,
+      transactionCount: transactionCount || 0,
       monthlyRevenue,
       monthlyExpenses,
       monthlyProfit: monthlyRevenue - monthlyExpenses,
@@ -89,6 +99,7 @@ async function getDashboardData() {
         top_expenses: [],
       },
       unreviewedCount: 0,
+      transactionCount: 0,
       monthlyRevenue: 0,
       monthlyExpenses: 0,
       monthlyProfit: 0,
@@ -103,30 +114,65 @@ export default async function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Overview</p>
-        <h1 className="text-3xl font-semibold text-slate-900">Dashboard</h1>
-        <p className="text-sm text-slate-500">
-          Financial overview for Maione Landscapes LLC
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Overview"
+        title="Dashboard"
+        description="Financial overview for Maione Landscapes LLC."
+        actions={(
+          <>
+            <a href="/transactions" className="btn-primary">
+              Review transactions
+            </a>
+            <a href="/upload" className="btn-secondary">
+              Upload CSV
+            </a>
+            <a href="/reports" className="btn-ghost">
+              View reports
+            </a>
+          </>
+        )}
+      />
 
       {data.error && (
         <div className="card border border-rose-200 bg-rose-50 text-rose-900">
           <h2 className="text-sm font-semibold">Dashboard data is unavailable.</h2>
           <p className="text-sm text-rose-700 mt-1">{data.error}</p>
+          <div className="mt-4">
+            <a href="/" className="btn-secondary">
+              Retry loading
+            </a>
+          </div>
         </div>
       )}
 
-      <DashboardStats
-        currentCash={data.currentCash}
-        monthlyRevenue={data.monthlyRevenue}
-        monthlyExpenses={data.monthlyExpenses}
-        monthlyProfit={data.monthlyProfit}
-        unreviewedCount={data.unreviewedCount}
-      />
+      {data.transactionCount === 0 ? (
+        <div className="card border-dashed border border-slate-200 bg-white">
+          <h2 className="text-lg font-semibold text-slate-900">No transactions yet</h2>
+          <p className="mt-2 text-sm text-slate-500">
+            Upload your first CSV file to start reviewing and categorizing transactions.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <a href="/upload" className="btn-primary">
+              Upload CSV
+            </a>
+            <a href="/transactions" className="btn-secondary">
+              View transactions
+            </a>
+          </div>
+        </div>
+      ) : (
+        <>
+          <DashboardStats
+            currentCash={data.currentCash}
+            monthlyRevenue={data.monthlyRevenue}
+            monthlyExpenses={data.monthlyExpenses}
+            monthlyProfit={data.monthlyProfit}
+            unreviewedCount={data.unreviewedCount}
+          />
 
-      <WeeklySummary summary={data.weeklySummary} />
+          <WeeklySummary summary={data.weeklySummary} />
+        </>
+      )}
 
       {data.unreviewedCount > 0 && (
         <div className="card border-l-4 border-amber-400">
@@ -140,7 +186,7 @@ export default async function Dashboard() {
               </h3>
               <div className="mt-2">
                 <a href="/transactions?reviewed=false" className="text-sm font-medium text-amber-700 hover:text-amber-600">
-                  Review now →
+                  Review now
                 </a>
               </div>
             </div>
@@ -148,5 +194,5 @@ export default async function Dashboard() {
         </div>
       )}
     </div>
-  );
+  )
 }

@@ -76,6 +76,26 @@ export default function TransactionsFilters({
     return `${rangeLabel} · ${reviewLabel}`
   }, [range, activeReviewed])
 
+  const activeChips = useMemo(() => {
+    const chips: string[] = []
+    if (accountId) {
+      const accountLabel = accounts.find((account) => account.id === accountId)?.name
+      if (accountLabel) chips.push(`Account: ${accountLabel}`)
+    }
+    if (range) {
+      const rangeLabel = RANGE_OPTIONS.find((option) => option.value === range)?.label
+      if (rangeLabel) chips.push(`Range: ${rangeLabel}`)
+    }
+    if (activeReviewed && activeReviewed !== 'all') {
+      const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReviewed)?.label
+      if (reviewLabel) chips.push(`Status: ${reviewLabel}`)
+    }
+    if (query) {
+      chips.push(`Search: ${query}`)
+    }
+    return chips
+  }, [accountId, accounts, range, activeReviewed, query])
+
   const updateParams = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString())
 
@@ -115,6 +135,7 @@ export default function TransactionsFilters({
       end: null,
       q: null,
     })
+    setSearchValue('')
   }
 
   const applyCustomRange = () => {
@@ -122,10 +143,10 @@ export default function TransactionsFilters({
   }
 
   return (
-    <div className="card space-y-4 sticky top-4 z-20">
+    <div className="card space-y-4 sticky top-20 z-20">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-700">Filters</p>
+          <p className="text-sm font-semibold text-slate-700">Filters</p>
           <p className="text-xs text-slate-500">{filterSummary}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -139,7 +160,7 @@ export default function TransactionsFilters({
           <button
             type="button"
             onClick={clearFilters}
-            className="btn-secondary"
+            className="btn-ghost"
           >
             Clear filters
           </button>
@@ -172,15 +193,27 @@ export default function TransactionsFilters({
           <label className="label" htmlFor="transaction-search">
             Search
           </label>
-          <input
-            id="transaction-search"
-            type="search"
-            value={searchValue}
-            onChange={(event) => setSearchValue(event.target.value)}
-            placeholder="Search payee, description, or reference"
-            className="input w-full"
-            aria-label="Search transactions"
-          />
+          <div className="relative">
+            <input
+              id="transaction-search"
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search payee, description, or reference"
+              className="input w-full pr-10"
+              aria-label="Search transactions"
+            />
+            {searchValue && (
+              <button
+                type="button"
+                onClick={() => setSearchValue('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Clear search"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -210,6 +243,16 @@ export default function TransactionsFilters({
           ))}
         </div>
       </div>
+
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {activeChips.map((chip) => (
+            <span key={chip} className="badge badge-slate">
+              {chip}
+            </span>
+          ))}
+        </div>
+      )}
 
       {range === 'custom' && (
         <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">

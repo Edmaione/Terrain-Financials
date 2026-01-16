@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import TransactionTable from '@/components/TransactionTable'
 import TransactionsFilters from '@/components/TransactionsFilters'
 import { resolveAccountSelection } from '@/lib/accounts'
+import PageHeader from '@/components/PageHeader'
 
 export const dynamic = 'force-dynamic'
 
@@ -217,14 +218,29 @@ export default async function TransactionsPage({
   const filterSummary = `${dateRange.label} · ${reviewedLabel}`
   const showDebugPanel = process.env.DEBUG_DATA_FLOW === 'true'
 
+  const refreshParams = new URLSearchParams()
+  Object.entries(searchParams).forEach(([key, value]) => {
+    if (value) {
+      refreshParams.set(key, value)
+    }
+  })
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold text-slate-900">Transactions</h1>
-        <p className="text-sm text-slate-500">
-          Review, categorize, and understand every transaction across your accounts.
-        </p>
-      </div>
+      <PageHeader
+        title="Transactions"
+        description="Review, categorize, and understand every transaction across your accounts."
+        actions={(
+          <>
+            <a href={`/transactions?${refreshParams.toString()}`} className="btn-secondary">
+              Refresh
+            </a>
+            <a href="/upload" className="btn-primary">
+              Upload CSV
+            </a>
+          </>
+        )}
+      />
 
       <TransactionsFilters
         reviewed={activeReviewed}
@@ -241,11 +257,14 @@ export default async function TransactionsPage({
         <div className="card border border-red-200 bg-red-50 text-red-900">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold">We couldn&apos;t load transactions.</h2>
+              <h2 className="text-sm font-semibold">We could not load transactions.</h2>
               <p className="text-sm text-red-700">
                 Please try again or refresh the page. If the issue persists, check the error details below.
               </p>
             </div>
+            <a href={`/transactions?${refreshParams.toString()}`} className="btn-secondary">
+              Retry
+            </a>
           </div>
           <details className="mt-3 text-xs text-red-800">
             <summary className="cursor-pointer font-medium">Error details</summary>
@@ -259,7 +278,7 @@ export default async function TransactionsPage({
           <div className="font-semibold text-slate-700">Data Health</div>
           <div className="mt-2 grid gap-1 sm:grid-cols-2">
             <div>Reviewed filter: {searchParams.reviewed ?? 'all'}</div>
-            <div>Date range: {dateRange.start ?? 'N/A'} → {dateRange.end ?? 'N/A'}</div>
+            <div>Date range: {dateRange.start ?? 'N/A'} to {dateRange.end ?? 'N/A'}</div>
             <div>Range preset: {activeRange}</div>
             <div>Returned rows: {transactions.length}</div>
           </div>

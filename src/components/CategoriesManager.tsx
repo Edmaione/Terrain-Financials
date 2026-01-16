@@ -28,6 +28,8 @@ export default function CategoriesManager() {
   const [success, setSuccess] = useState<string | null>(null);
   const [formState, setFormState] = useState({ ...emptyForm });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
 
   const parentOptions = useMemo(
     () => categories.filter((category) => !category.parent_id),
@@ -54,6 +56,28 @@ export default function CategoriesManager() {
   const resetForm = () => {
     setEditingId(null);
     setFormState({ ...emptyForm });
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (category: Category) => {
+    setEditingId(category.id);
+    setFormState({
+      name: category.name,
+      type: category.type,
+      section: category.section || '',
+      parent_id: category.parent_id || '',
+      sort_order: category.sort_order || 0,
+    });
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setError(null);
   };
 
   const handleSubmit = async () => {
@@ -89,6 +113,7 @@ export default function CategoriesManager() {
         setSuccess('Category created.');
       }
 
+      closeModal();
       resetForm();
       await fetchCategories();
     } catch (err) {
@@ -96,29 +121,17 @@ export default function CategoriesManager() {
     }
   };
 
-  const handleEdit = (category: Category) => {
-    setEditingId(category.id);
-    setFormState({
-      name: category.name,
-      type: category.type,
-      section: category.section || '',
-      parent_id: category.parent_id || '',
-      sort_order: category.sort_order || 0,
-    });
-  };
-
-  const handleDelete = async (category: Category) => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     setError(null);
     setSuccess(null);
 
-    const confirmed = window.confirm(`Delete ${category.name}? This cannot be undone.`);
-    if (!confirmed) return;
-
     try {
-      await apiRequest(`/api/categories/${category.id}`, {
+      await apiRequest(`/api/categories/${deleteTarget.id}`, {
         method: 'DELETE',
       });
       setSuccess('Category deleted.');
+      setDeleteTarget(null);
       await fetchCategories();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete category.');
@@ -128,100 +141,23 @@ export default function CategoriesManager() {
   return (
     <div className="space-y-6">
       <div className="card">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Category Manager</h2>
             <p className="text-sm text-slate-500">
               Create, organize, and retire categories used across transactions.
             </p>
           </div>
-          {editingId && (
-            <button type="button" onClick={resetForm} className="btn-secondary">
-              Cancel edit
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={fetchCategories} className="btn-secondary">
+              Refresh
             </button>
-          )}
-        </div>
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="label" htmlFor="category-name">
-              Name
-            </label>
-            <input
-              id="category-name"
-              value={formState.name}
-              onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))}
-              className="input w-full"
-              placeholder="e.g. Fuel"
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="category-type">
-              Type
-            </label>
-            <select
-              id="category-type"
-              value={formState.type}
-              onChange={(event) => setFormState((prev) => ({ ...prev, type: event.target.value }))}
-              className="input w-full"
-            >
-              {TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="category-section">
-              Section
-            </label>
-            <input
-              id="category-section"
-              value={formState.section}
-              onChange={(event) => setFormState((prev) => ({ ...prev, section: event.target.value }))}
-              className="input w-full"
-              placeholder="e.g. ADMIN"
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="category-parent">
-              Parent category
-            </label>
-            <select
-              id="category-parent"
-              value={formState.parent_id}
-              onChange={(event) => setFormState((prev) => ({ ...prev, parent_id: event.target.value }))}
-              className="input w-full"
-            >
-              <option value="">None</option>
-              {parentOptions.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="category-sort">
-              Sort order
-            </label>
-            <input
-              id="category-sort"
-              type="number"
-              value={formState.sort_order}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, sort_order: Number(event.target.value) }))
-              }
-              className="input w-full"
-            />
+            <button type="button" onClick={openCreateModal} className="btn-primary">
+              New category
+            </button>
           </div>
         </div>
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          <button type="button" onClick={handleSubmit} className="btn-primary">
-            {editingId ? 'Save changes' : 'Create category'}
-          </button>
-          {success && <span className="text-sm text-emerald-600">{success}</span>}
-        </div>
+        {success && <p className="mt-4 text-sm font-medium text-emerald-600">{success}</p>}
       </div>
 
       {error && <AlertBanner variant="error" title="Action failed" message={error} />}
@@ -232,9 +168,6 @@ export default function CategoriesManager() {
             <h2 className="text-lg font-semibold text-slate-900">All categories</h2>
             <p className="text-sm text-slate-500">{categories.length} total</p>
           </div>
-          <button type="button" onClick={fetchCategories} className="btn-secondary">
-            Refresh
-          </button>
         </div>
 
         {loading ? (
@@ -245,20 +178,20 @@ export default function CategoriesManager() {
           </div>
         ) : (
           <div className="mt-6 overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
+            <table className="min-w-full">
+              <thead className="table-header">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Section</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Parent</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Sort</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Actions</th>
+                  <th className="px-4 py-3 text-left">Name</th>
+                  <th className="px-4 py-3 text-left">Section</th>
+                  <th className="px-4 py-3 text-left">Type</th>
+                  <th className="px-4 py-3 text-left">Parent</th>
+                  <th className="px-4 py-3 text-right">Sort</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
+              <tbody className="bg-white">
                 {categories.map((category) => (
-                  <tr key={category.id} className="hover:bg-slate-50">
+                  <tr key={category.id} className="table-row">
                     <td className="px-4 py-3 text-sm text-slate-900">
                       <div className="font-medium">{category.name}</div>
                     </td>
@@ -280,15 +213,15 @@ export default function CategoriesManager() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => handleEdit(category)}
+                          onClick={() => openEditModal(category)}
                           className="btn-secondary"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDelete(category)}
-                          className="btn-secondary"
+                          onClick={() => setDeleteTarget(category)}
+                          className="btn-destructive"
                         >
                           Delete
                         </button>
@@ -301,6 +234,138 @@ export default function CategoriesManager() {
           </div>
         )}
       </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  {editingId ? 'Edit category' : 'New category'}
+                </h3>
+                <p className="text-sm text-slate-500">
+                  {editingId ? 'Update category details and hierarchy.' : 'Create a new category for transactions.'}
+                </p>
+              </div>
+              <button type="button" onClick={closeModal} className="btn-ghost">
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="label" htmlFor="category-name">
+                  Name
+                </label>
+                <input
+                  id="category-name"
+                  value={formState.name}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))}
+                  className="input w-full"
+                  placeholder="e.g. Fuel"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="category-type">
+                  Type
+                </label>
+                <select
+                  id="category-type"
+                  value={formState.type}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, type: event.target.value }))}
+                  className="input w-full"
+                >
+                  {TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="category-section">
+                  Section
+                </label>
+                <input
+                  id="category-section"
+                  value={formState.section}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, section: event.target.value }))}
+                  className="input w-full"
+                  placeholder="e.g. ADMIN"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="category-parent">
+                  Parent category
+                </label>
+                <select
+                  id="category-parent"
+                  value={formState.parent_id}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, parent_id: event.target.value }))}
+                  className="input w-full"
+                >
+                  <option value="">None</option>
+                  {parentOptions.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="category-sort">
+                  Sort order
+                </label>
+                <input
+                  id="category-sort"
+                  type="number"
+                  value={formState.sort_order}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, sort_order: Number(event.target.value) }))
+                  }
+                  className="input w-full"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={closeModal} className="btn-ghost">
+                Cancel
+              </button>
+              <button type="button" onClick={handleSubmit} className="btn-primary">
+                {editingId ? 'Save changes' : 'Create category'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <h3 className="text-lg font-semibold text-slate-900">Delete category</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Deleting <span className="font-semibold text-slate-700">{deleteTarget.name}</span> will remove it from future selections. Existing transactions keep their assigned category.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={() => setDeleteTarget(null)} className="btn-ghost">
+                Cancel
+              </button>
+              <button type="button" onClick={handleDelete} className="btn-destructive">
+                Delete category
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

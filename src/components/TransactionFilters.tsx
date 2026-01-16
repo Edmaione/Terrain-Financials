@@ -50,47 +50,30 @@ export default function TransactionFilters({
   return (
     <div className="card">
       <div className="space-y-4">
-        {/* Review Status Filter */}
         <div>
           <label className="label">Status</label>
           <div className="flex gap-2">
-            <button
-              onClick={() => updateFilter('reviewed', null)}
-              disabled={isPending}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                !currentReviewed
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              } disabled:opacity-50`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => updateFilter('reviewed', 'false')}
-              disabled={isPending}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                currentReviewed === 'false'
-                  ? 'bg-yellow-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              } disabled:opacity-50`}
-            >
-              Need Review
-            </button>
-            <button
-              onClick={() => updateFilter('reviewed', 'true')}
-              disabled={isPending}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                currentReviewed === 'true'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              } disabled:opacity-50`}
-            >
-              Reviewed
-            </button>
+            {[
+              { value: null, label: 'All' },
+              { value: 'false', label: 'Need Review' },
+              { value: 'true', label: 'Reviewed' },
+            ].map((option) => (
+              <button
+                key={option.label}
+                onClick={() => updateFilter('reviewed', option.value)}
+                disabled={isPending}
+                className={`pill ${
+                  (option.value === null && !currentReviewed) || currentReviewed === option.value
+                    ? 'pill-active'
+                    : 'pill-inactive'
+                } disabled:opacity-50`}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Date Range Filter */}
         <div>
           <label className="label">Date Range</label>
           <div className="flex flex-wrap gap-2">
@@ -99,11 +82,7 @@ export default function TransactionFilters({
                 key={range}
                 onClick={() => updateFilter('range', range)}
                 disabled={isPending}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  currentRange === range
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                } disabled:opacity-50`}
+                className={`pill ${currentRange === range ? 'pill-active' : 'pill-inactive'} disabled:opacity-50`}
               >
                 {getDateRangeLabel(range)}
               </button>
@@ -111,15 +90,14 @@ export default function TransactionFilters({
           </div>
         </div>
 
-        {/* Search Filter */}
         <div>
           <label className="label">Search</label>
-          <form onSubmit={handleSearchSubmit} className="flex gap-2">
+          <form onSubmit={handleSearchSubmit} className="flex flex-wrap gap-2">
             <input
               type="text"
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
-              placeholder="Search by payee or description..."
+              placeholder="Search by payee or description"
               className="input flex-1"
             />
             <button
