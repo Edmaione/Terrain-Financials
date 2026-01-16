@@ -1,10 +1,24 @@
-import type { ReactNode } from 'react';
+import type { ReactNode } from 'react'
+import { IconAlertTriangle, IconCheckCircle, IconInfo } from '@/components/ui/icons'
+import { cn } from '@/lib/utils'
 
-const styles: Record<string, string> = {
-  error: 'border-rose-200 bg-rose-50 text-rose-900',
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-  info: 'border-slate-200 bg-slate-50 text-slate-900',
-};
+const styles: Record<string, { wrapper: string; icon: string; iconEl: React.ElementType }> = {
+  error: {
+    wrapper: 'border-rose-200 bg-rose-50 text-rose-900',
+    icon: 'text-rose-600',
+    iconEl: IconAlertTriangle,
+  },
+  success: {
+    wrapper: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    icon: 'text-emerald-600',
+    iconEl: IconCheckCircle,
+  },
+  info: {
+    wrapper: 'border-slate-200 bg-white text-slate-900',
+    icon: 'text-slate-600',
+    iconEl: IconInfo,
+  },
+}
 
 export default function AlertBanner({
   variant = 'info',
@@ -12,16 +26,24 @@ export default function AlertBanner({
   message,
   actions,
 }: {
-  variant?: 'error' | 'success' | 'info';
-  title?: string;
-  message: string;
-  actions?: ReactNode;
+  variant?: 'error' | 'success' | 'info'
+  title?: string
+  message: string
+  actions?: ReactNode
 }) {
+  const config = styles[variant]
+  const Icon = config.iconEl
+
   return (
-    <div className={`rounded-2xl border px-4 py-3 text-sm ${styles[variant]}`}>
-      {title && <p className="font-semibold">{title}</p>}
-      <p className={title ? 'mt-1' : undefined}>{message}</p>
-      {actions && <div className="mt-3">{actions}</div>}
+    <div className={cn('rounded-2xl border px-4 py-3 text-sm', config.wrapper)}>
+      <div className="flex items-start gap-3">
+        <Icon className={cn('mt-0.5 h-5 w-5', config.icon)} />
+        <div className="flex-1">
+          {title && <p className="font-semibold">{title}</p>}
+          <p className={title ? 'mt-1' : undefined}>{message}</p>
+          {actions && <div className="mt-3">{actions}</div>}
+        </div>
+      </div>
     </div>
-  );
+  )
 }

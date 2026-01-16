@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { IconFileUp, IconUploadCloud } from '@/components/ui/icons'
 import { parseCSV } from '@/lib/csv-parser'
 import { ParsedTransaction } from '@/types'
 import { apiRequest } from '@/lib/api-client'
 import AlertBanner from '@/components/AlertBanner'
+import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
+import { useToast } from '@/components/ui/Toast'
 
 type UploadSummary = {
   parsed_count: number
@@ -32,6 +36,7 @@ export default function CSVUploader({
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [accountId, setAccountId] = useState(selectedAccountId ?? '')
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null)
+  const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
 
   useEffect(() => {
@@ -102,7 +107,13 @@ export default function CSVUploader({
 
       setParsedData(allTransactions)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to parse CSV')
+      const message = err instanceof Error ? err.message : 'Failed to parse CSV'
+      setError(message)
+      toast({
+        variant: 'error',
+        title: 'Parse failed',
+        description: message,
+      })
     }
   }
 
@@ -131,8 +142,19 @@ export default function CSVUploader({
       const message = `Imported ${result.imported_count} transactions. ${result.duplicate_count} duplicates skipped.`
       setSuccessMessage(message)
       setUploadSummary(result)
+      toast({
+        variant: 'success',
+        title: 'Upload complete',
+        description: message,
+      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed')
+      const message = err instanceof Error ? err.message : 'Upload failed'
+      setError(message)
+      toast({
+        variant: 'error',
+        title: 'Upload failed',
+        description: message,
+      })
     } finally {
       setUploading(false)
     }
@@ -156,8 +178,8 @@ export default function CSVUploader({
         }`}
       >
         <div className="space-y-4">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
-            📥
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-700">
+            <IconUploadCloud className="h-6 w-6" />
           </div>
 
           <div>
@@ -184,14 +206,14 @@ export default function CSVUploader({
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
-        <label className="label" htmlFor="upload-account">
+        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="upload-account">
           Account for import
         </label>
-        <select
+        <Select
           id="upload-account"
           value={accountId}
           onChange={(event) => handleAccountChange(event.target.value)}
-          className="input w-full sm:max-w-sm"
+          className="mt-2 w-full sm:max-w-sm"
           aria-label="Select account for upload"
         >
           {accounts.length === 0 && <option value="">No accounts available</option>}
@@ -201,7 +223,7 @@ export default function CSVUploader({
               {account.institution ? ` · ${account.institution}` : ''}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {files.length > 0 && (
@@ -231,7 +253,8 @@ export default function CSVUploader({
           title="Upload complete"
           message={successMessage}
           actions={(
-            <a href={reviewHref} className="btn-primary">
+            <a href={reviewHref} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
+              <IconFileUp className="h-4 w-4" />
               Review unreviewed transactions
             </a>
           )}
@@ -239,7 +262,7 @@ export default function CSVUploader({
       )}
 
       {uploadSummary && (
-        <div className="card-muted">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
           <h3 className="text-sm font-semibold text-slate-900">Import summary</h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-4">
             <div>
@@ -281,19 +304,19 @@ export default function CSVUploader({
               </h3>
               <p className="text-xs text-slate-500">Review the preview before importing.</p>
             </div>
-            <button
+            <Button
               onClick={handleUpload}
               disabled={uploading || !accountId}
-              className="btn-primary disabled:opacity-50"
+              variant="primary"
             >
-              {uploading ? 'Importing...' : 'Import Transactions'}
-            </button>
+              {uploading ? 'Importing...' : 'Import transactions'}
+            </Button>
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="max-h-96 overflow-y-auto">
               <table className="min-w-full">
-                <thead className="table-header sticky top-0">
+                <thead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3 text-left">Date</th>
                     <th className="px-4 py-3 text-left">Payee</th>
@@ -303,7 +326,7 @@ export default function CSVUploader({
                 </thead>
                 <tbody className="bg-white">
                   {parsedData.slice(0, 50).map((transaction, idx) => (
-                    <tr key={idx} className="table-row">
+                    <tr key={idx} className="border-b border-slate-100 text-sm text-slate-700">
                       <td className="px-4 py-3 text-sm text-slate-900 whitespace-nowrap">
                         {transaction.date}
                       </td>

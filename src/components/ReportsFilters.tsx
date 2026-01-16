@@ -2,13 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { IconCalendar } from '@/components/ui/icons'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
+import { cn } from '@/lib/utils'
 
 const RANGE_OPTIONS = [
-  { value: 'this_month', label: 'This Month' },
-  { value: 'last_month', label: 'Last Month' },
-  { value: 'last_3_months', label: 'Last 3 Months' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'last_month', label: 'Last month' },
+  { value: 'last_3_months', label: 'Last 3 months' },
   { value: 'ytd', label: 'YTD' },
-  { value: 'all_time', label: 'All Time' },
+  { value: 'all_time', label: 'All time' },
   { value: 'custom', label: 'Custom' },
 ]
 
@@ -66,17 +72,27 @@ export default function ReportsFilters({
   }
 
   return (
-    <div className="card space-y-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)]">
+    <Card className="p-6">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+          <IconCalendar className="h-5 w-5" />
+        </div>
         <div>
-          <label className="label" htmlFor="reports-account">
+          <p className="text-sm font-semibold text-slate-700">Report filters</p>
+          <p className="text-xs text-slate-500">Select accounts and ranges for reporting.</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)]">
+        <div>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="reports-account">
             Account
           </label>
-          <select
+          <Select
             id="reports-account"
             value={accountId || ''}
             onChange={(event) => updateParams({ account_id: event.target.value })}
-            className="input w-full"
+            className="mt-2 w-full"
             aria-label="Select account"
           >
             {accounts.length === 0 && <option value="">No accounts</option>}
@@ -86,63 +102,60 @@ export default function ReportsFilters({
                 {account.institution ? ` · ${account.institution}` : ''}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div>
-          <label className="label" htmlFor="reports-range">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="reports-range">
             Range
           </label>
-          <div className="flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             {RANGE_OPTIONS.map((option) => (
-              <button
+              <Button
                 key={option.value}
-                type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => handleRangeChange(option.value)}
-                className={`pill ${range === option.value ? 'pill-active' : 'pill-inactive'}`}
+                className={cn(
+                  'rounded-full border border-slate-200 bg-white text-slate-600',
+                  range === option.value && 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
+                )}
               >
                 {option.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
       </div>
 
       {range === 'custom' && (
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
           <div className="flex-1">
-            <label className="label" htmlFor="reports-start">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="reports-start">
               Start date
             </label>
-            <input
+            <Input
               id="reports-start"
               type="date"
               value={customStart}
               onChange={(event) => setCustomStart(event.target.value)}
-              className="input w-full"
             />
           </div>
           <div className="flex-1">
-            <label className="label" htmlFor="reports-end">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="reports-end">
               End date
             </label>
-            <input
+            <Input
               id="reports-end"
               type="date"
               value={customEnd}
               onChange={(event) => setCustomEnd(event.target.value)}
-              className="input w-full"
             />
           </div>
-          <button
-            type="button"
-            onClick={applyCustomRange}
-            className="btn-primary"
-            disabled={!customStart || !customEnd}
-          >
+          <Button variant="primary" onClick={applyCustomRange} disabled={!customStart || !customEnd}>
             Apply
-          </button>
+          </Button>
         </div>
       )}
-    </div>
+    </Card>
   )
 }

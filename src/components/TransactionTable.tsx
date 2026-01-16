@@ -1,9 +1,14 @@
-'use client';
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import AlertBanner from '@/components/AlertBanner'
+import { IconCheck, IconClipboard } from '@/components/ui/icons'
 import { apiRequest } from '@/lib/api-client'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
+import { Badge } from '@/components/ui/Badge'
+import { useToast } from '@/components/ui/Toast'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -30,23 +35,17 @@ export default function TransactionTable({
   accountId: string
 }) {
   const [processing, setProcessing] = useState<string | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [openCategoryFor, setOpenCategoryFor] = useState<string | null>(null)
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [bulkCategoryId, setBulkCategoryId] = useState<string>('')
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const router = useRouter()
+  const { toast } = useToast()
 
   useEffect(() => {
     setSelectedIds([])
   }, [transactions])
-
-  useEffect(() => {
-    if (!errorMessage) return
-    const timeout = window.setTimeout(() => setErrorMessage(null), 5000)
-    return () => window.clearTimeout(timeout)
-  }, [errorMessage])
 
   const allSelected = useMemo(() => {
     return transactions.length > 0 && selectedIds.length === transactions.length
@@ -76,7 +75,6 @@ export default function TransactionTable({
     markReviewed?: boolean
   }) => {
     setProcessing(transactionId)
-    setErrorMessage(null)
 
     try {
       const payload: Record<string, unknown> = {
@@ -94,11 +92,20 @@ export default function TransactionTable({
 
       setOpenCategoryFor(null)
       setSelectedCategoryId('')
+      toast({
+        variant: 'success',
+        title: 'Transaction updated',
+        description: 'The transaction was updated successfully.',
+      })
       router.refresh()
     } catch (error) {
       console.error('Approve request failed', error)
       const errorText = error instanceof Error ? error.message : 'Failed to approve transaction.'
-      setErrorMessage(errorText)
+      toast({
+        variant: 'error',
+        title: 'Approval failed',
+        description: errorText,
+      })
     } finally {
       setProcessing(null)
     }
@@ -108,12 +115,15 @@ export default function TransactionTable({
     if (selectedIds.length === 0) return
 
     if (action === 'set_category' && !bulkCategoryId) {
-      setErrorMessage('Select a category before applying bulk updates.')
+      toast({
+        variant: 'info',
+        title: 'Select a category',
+        description: 'Choose a category before applying bulk updates.',
+      })
       return
     }
 
     setBulkProcessing(true)
-    setErrorMessage(null)
 
     try {
       await apiRequest('/api/transactions/bulk', {
@@ -128,11 +138,20 @@ export default function TransactionTable({
 
       setSelectedIds([])
       setBulkCategoryId('')
+      toast({
+        variant: 'success',
+        title: 'Bulk update complete',
+        description: 'Selected transactions were updated.',
+      })
       router.refresh()
     } catch (error) {
       console.error('Bulk update failed', error)
       const errorText = error instanceof Error ? error.message : 'Bulk update failed.'
-      setErrorMessage(errorText)
+      toast({
+        variant: 'error',
+        title: 'Bulk update failed',
+        description: errorText,
+      })
     } finally {
       setBulkProcessing(false)
     }
@@ -140,9 +159,9 @@ export default function TransactionTable({
 
   if (transactions.length === 0) {
     return (
-      <div className="card text-center py-12">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
-          🧾
+      <Card className="p-12 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+          <IconClipboard className="h-6 w-6" />
         </div>
         <p className="text-base font-semibold text-slate-900">No transactions found</p>
         <p className="mt-2 text-sm text-slate-500">
@@ -154,18 +173,12 @@ export default function TransactionTable({
             View all time
           </a>
         </div>
-      </div>
+      </Card>
     )
   }
 
   return (
-    <div className="card overflow-hidden p-0">
-      {errorMessage && (
-        <div className="border-b border-slate-200 px-6 py-4">
-          <AlertBanner variant="error" title="Action failed" message={errorMessage} />
-        </div>
-      )}
-
+    <Card className="overflow-hidden">
       {selectedIds.length > 0 && (
         <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -176,19 +189,19 @@ export default function TransactionTable({
               <p className="text-xs text-slate-500">Bulk actions apply to selected rows.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => handleBulkAction('mark_reviewed')}
-                className="btn-secondary"
                 disabled={bulkProcessing}
               >
                 Mark reviewed
-              </button>
+              </Button>
               <div className="flex flex-wrap items-center gap-2">
-                <select
+                <Select
                   value={bulkCategoryId}
                   onChange={(event) => setBulkCategoryId(event.target.value)}
-                  className="input w-48 text-xs"
+                  className="h-9 w-48 text-xs"
                   aria-label="Select bulk category"
                 >
                   <option value="">Select category</option>
@@ -197,24 +210,24 @@ export default function TransactionTable({
                       {category.section ? `${category.section} · ${category.name}` : category.name}
                     </option>
                   ))}
-                </select>
-                <button
-                  type="button"
+                </Select>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => handleBulkAction('set_category')}
-                  className="btn-secondary"
                   disabled={bulkProcessing || !bulkCategoryId}
                 >
                   Apply category
-                </button>
+                </Button>
               </div>
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => handleBulkAction('approve')}
-                className="btn-primary"
                 disabled={bulkProcessing}
               >
                 Approve
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -229,13 +242,13 @@ export default function TransactionTable({
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <span>Account scoped</span>
-          <span className="badge badge-slate">{accountId ? 'Active' : 'None'}</span>
+          <Badge>{accountId ? 'Active' : 'None'}</Badge>
         </div>
       </div>
 
       <div className="overflow-x-auto">
         <table className="min-w-full">
-          <thead className="table-header">
+          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-6 py-3 text-left">
                 <input
@@ -265,7 +278,9 @@ export default function TransactionTable({
               return (
                 <tr
                   key={transaction.id}
-                  className={`table-row ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} ${!transaction.reviewed ? 'ring-1 ring-inset ring-amber-100' : ''} focus-within:bg-slate-50`}
+                  className={`border-b border-slate-100 text-sm text-slate-700 hover:bg-slate-50 ${
+                    index % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                  } ${!transaction.reviewed ? 'ring-1 ring-inset ring-amber-100' : ''} focus-within:bg-slate-50`}
                 >
                   <td className="px-6 py-4 align-top">
                     <input
@@ -339,13 +354,11 @@ export default function TransactionTable({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <div className="flex flex-col items-center gap-2">
-                      {transaction.is_transfer && (
-                        <span className="badge badge-purple">Transfer</span>
-                      )}
+                      {transaction.is_transfer && <Badge variant="info">Transfer</Badge>}
                       {transaction.reviewed ? (
-                        <span className="badge badge-green">Reviewed</span>
+                        <Badge variant="success">Reviewed</Badge>
                       ) : (
-                        <span className="badge badge-amber">Pending</span>
+                        <Badge variant="warning">Pending</Badge>
                       )}
                     </div>
                   </td>
@@ -354,10 +367,10 @@ export default function TransactionTable({
                       <div className="flex flex-col items-end gap-2">
                         {isCategoryPickerOpen ? (
                           <div className="flex flex-col items-end gap-2">
-                            <select
+                            <Select
                               value={selectedCategoryId}
                               onChange={(event) => setSelectedCategoryId(event.target.value)}
-                              className="input w-48 text-xs"
+                              className="h-9 w-48 text-xs"
                             >
                               <option value="">Select category</option>
                               {categories.map((category) => (
@@ -365,10 +378,11 @@ export default function TransactionTable({
                                   {category.section ? `${category.section} · ${category.name}` : category.name}
                                 </option>
                               ))}
-                            </select>
+                            </Select>
                             <div className="flex items-center gap-2">
-                              <button
-                                type="button"
+                              <Button
+                                variant="primary"
+                                size="sm"
                                 onClick={() =>
                                   handleApprove({
                                     transactionId: transaction.id,
@@ -376,25 +390,27 @@ export default function TransactionTable({
                                   })
                                 }
                                 disabled={processing === transaction.id || selectedCategoryId.length === 0}
-                                className="btn-primary text-xs disabled:opacity-50"
+                                className="text-xs"
                               >
                                 {processing === transaction.id ? 'Approving...' : 'Approve'}
-                              </button>
-                              <button
-                                type="button"
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => {
                                   setOpenCategoryFor(null)
                                   setSelectedCategoryId('')
                                 }}
-                                className="btn-ghost text-xs"
+                                className="text-xs"
                               >
                                 Cancel
-                              </button>
+                              </Button>
                             </div>
                           </div>
                         ) : (
-                          <button
-                            type="button"
+                          <Button
+                            variant="primary"
+                            size="sm"
                             onClick={() => {
                               if (suggestedCategoryId) {
                                 void handleApprove({
@@ -407,14 +423,14 @@ export default function TransactionTable({
                               setSelectedCategoryId('')
                             }}
                             disabled={processing === transaction.id}
-                            className="btn-primary text-xs disabled:opacity-50"
+                            className="text-xs"
                           >
                             {processing === transaction.id
                               ? 'Approving...'
                               : suggestedCategoryId
                                 ? 'Approve'
                                 : 'Categorize + Approve'}
-                          </button>
+                          </Button>
                         )}
                         <button
                           type="button"
@@ -431,6 +447,12 @@ export default function TransactionTable({
                         </button>
                       </div>
                     )}
+                    {transaction.reviewed && (
+                      <div className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                        <IconCheck className="h-3.5 w-3.5" />
+                        Approved
+                      </div>
+                    )}
                   </td>
                 </tr>
               )
@@ -438,6 +460,6 @@ export default function TransactionTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   )
 }

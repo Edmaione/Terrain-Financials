@@ -1,7 +1,11 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import CSVUploader from '@/components/CSVUploader'
 import { resolveAccountSelection } from '@/lib/accounts'
 import PageHeader from '@/components/PageHeader'
+import AlertBanner from '@/components/AlertBanner'
+import { Card } from '@/components/ui/Card'
+import { buttonVariants } from '@/components/ui/Button'
 
 export default async function UploadPage({
   searchParams,
@@ -20,44 +24,44 @@ export default async function UploadPage({
 
   if (!selectedAccount) {
     return (
-      <div className="card border border-rose-200 bg-rose-50 text-rose-900">
-        <h2 className="text-sm font-semibold">No account available.</h2>
-        <p className="text-sm text-rose-700 mt-1">
-          Create or activate an account before uploading transactions.
-        </p>
-      </div>
+      <AlertBanner
+        variant="error"
+        title="No account available."
+        message="Create or activate an account before uploading transactions."
+      />
     )
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Upload Transactions"
-        description="Upload CSV files from your bank accounts to import transactions."
+        label="Upload"
+        title="Upload transactions"
+        description="Import CSV files from your bank to keep transactions up to date."
         actions={(
-          <a href="/transactions?reviewed=false" className="btn-secondary">
+          <Link href="/transactions?reviewed=false" className={buttonVariants({ variant: 'secondary' })}>
             Review unreviewed
-          </a>
+          </Link>
         )}
       />
 
-      <div className="card max-w-4xl">
+      <Card className="max-w-4xl p-6">
         <CSVUploader
           accounts={accounts}
           selectedAccountId={selectedAccount?.id ?? null}
         />
-      </div>
+      </Card>
 
-      <div className="card max-w-4xl border border-slate-200 bg-slate-50">
+      <Card className="max-w-4xl border border-slate-200 bg-slate-50 p-6">
         <h3 className="text-sm font-semibold text-slate-900 mb-2">Tips for uploading</h3>
         <ul className="text-sm text-slate-600 space-y-1 list-disc list-inside">
           <li>You can upload multiple CSV files at once.</li>
-          <li>The system auto-detects your bank format (Relay, Chase, etc.).</li>
+          <li>The system auto-detects your bank format.</li>
           <li>Duplicate transactions are automatically filtered out.</li>
           <li>AI will categorize transactions based on learned patterns.</li>
           <li>Review and approve AI suggestions before finalizing.</li>
         </ul>
-      </div>
+      </Card>
     </div>
   )
 }
