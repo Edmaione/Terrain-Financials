@@ -10,6 +10,7 @@ export default function CSVUploader() {
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([])
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
   
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -56,6 +57,14 @@ export default function CSVUploader() {
         allTransactions.push(...transactions)
       }
       
+      if (debugIngest) {
+        console.info('[ingest] Parsed transactions', {
+          fileCount: filesToParse.length,
+          parsedCount: allTransactions.length,
+          sample: allTransactions.slice(0, 3),
+        })
+      }
+
       setParsedData(allTransactions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to parse CSV')

@@ -1,7 +1,10 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import TransactionTable from '@/components/TransactionTable'
 
+export const dynamic = 'force-dynamic'
+
 async function getTransactions(reviewed?: string) {
+  const debugIngest = process.env.INGEST_DEBUG === 'true'
   let query = supabaseAdmin
     .from('transactions')
     .select(`
@@ -23,7 +26,14 @@ async function getTransactions(reviewed?: string) {
     console.error('Error fetching transactions:', error)
     return []
   }
-  
+
+  if (debugIngest) {
+    console.info('[ingest] Transactions fetched', {
+      reviewedFilter: reviewed,
+      count: data?.length || 0,
+    })
+  }
+
   return data || []
 }
 
