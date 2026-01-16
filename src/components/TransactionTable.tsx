@@ -141,13 +141,16 @@ export default function TransactionTable({
   if (transactions.length === 0) {
     return (
       <div className="card text-center py-12">
-        <p className="text-gray-500">No transactions found.</p>
-        <p className="mt-2 text-sm text-gray-400">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
+          🧾
+        </div>
+        <p className="text-base font-semibold text-slate-900">No transactions found</p>
+        <p className="mt-2 text-sm text-slate-500">
           Try expanding the date range, switching accounts, or uploading a file.
         </p>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
           <span>Active filters: {filterSummary}</span>
-          <a href={allTimeHref} className="text-primary-600 hover:text-primary-700">
+          <a href={allTimeHref} className="font-semibold text-slate-700 hover:text-slate-900">
             View all time
           </a>
         </div>
@@ -181,7 +184,7 @@ export default function TransactionTable({
               >
                 Mark reviewed
               </button>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={bulkCategoryId}
                   onChange={(event) => setBulkCategoryId(event.target.value)}
@@ -226,15 +229,15 @@ export default function TransactionTable({
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <span>Account scoped</span>
-          <span className="rounded-full bg-slate-100 px-2 py-1">{accountId ? 'Active' : 'None'}</span>
+          <span className="badge badge-slate">{accountId ? 'Active' : 'None'}</span>
         </div>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50">
+        <table className="min-w-full">
+          <thead className="table-header">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -242,30 +245,16 @@ export default function TransactionTable({
                   aria-label="Select all transactions"
                 />
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Date
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Description
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Account
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Category
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Amount
-              </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Actions
-              </th>
+              <th className="px-6 py-3 text-left">Date</th>
+              <th className="px-6 py-3 text-left">Description</th>
+              <th className="px-6 py-3 text-left">Account</th>
+              <th className="px-6 py-3 text-left">Category</th>
+              <th className="px-6 py-3 text-right">Amount</th>
+              <th className="px-6 py-3 text-center">Status</th>
+              <th className="px-6 py-3 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-slate-100">
+          <tbody className="bg-white">
             {transactions.map((transaction, index) => {
               const isPositive = transaction.amount >= 0
               const accountName = transaction.account?.name || 'Unassigned'
@@ -276,11 +265,9 @@ export default function TransactionTable({
               return (
                 <tr
                   key={transaction.id}
-                  className={`${
-                    index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'
-                  } ${!transaction.reviewed ? 'ring-1 ring-inset ring-yellow-100' : ''} hover:bg-slate-50 focus-within:bg-slate-50`}
+                  className={`table-row ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} ${!transaction.reviewed ? 'ring-1 ring-inset ring-amber-100' : ''} focus-within:bg-slate-50`}
                 >
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 align-top">
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(transaction.id)}
@@ -293,13 +280,15 @@ export default function TransactionTable({
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-900">
                     <div className="font-medium">{transaction.payee || 'Unknown payee'}</div>
-                    <div className="text-xs text-slate-500">{transaction.description || 'No description'}</div>
+                    <div className="text-xs text-slate-500">
+                      {transaction.description || 'No description'}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-900">
                     <div className="font-medium">{accountName}</div>
                     {transferName && (
                       <div className="mt-1 text-xs text-slate-500">
-                        Transfer: {accountName} → {transferName}
+                        Transfer: {accountName} to {transferName}
                       </div>
                     )}
                   </td>
@@ -316,8 +305,9 @@ export default function TransactionTable({
                     ) : (
                       <div>
                         {transaction.ai_suggested?.name ? (
-                          <div className="font-medium text-blue-600">
+                          <div className="font-medium text-slate-900">
                             {transaction.ai_suggested.name}
+                            <span className="ml-2 text-xs text-slate-500">AI suggested</span>
                           </div>
                         ) : (
                           <button
@@ -326,7 +316,7 @@ export default function TransactionTable({
                               setOpenCategoryFor(transaction.id)
                               setSelectedCategoryId('')
                             }}
-                            className="font-medium text-blue-600 hover:text-blue-700"
+                            className="text-left font-medium text-slate-700 hover:text-slate-900"
                           >
                             Needs categorization
                           </button>
@@ -340,7 +330,7 @@ export default function TransactionTable({
                     )}
                   </td>
                   <td
-                    className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${
+                    className={`px-6 py-4 whitespace-nowrap text-sm font-semibold text-right ${
                       isPositive ? 'text-emerald-600' : 'text-rose-600'
                     }`}
                   >
@@ -364,44 +354,42 @@ export default function TransactionTable({
                       <div className="flex flex-col items-end gap-2">
                         {isCategoryPickerOpen ? (
                           <div className="flex flex-col items-end gap-2">
-                            <div className="flex flex-col items-end gap-2">
-                              <select
-                                value={selectedCategoryId}
-                                onChange={(event) => setSelectedCategoryId(event.target.value)}
-                                className="input w-48 text-xs"
+                            <select
+                              value={selectedCategoryId}
+                              onChange={(event) => setSelectedCategoryId(event.target.value)}
+                              className="input w-48 text-xs"
+                            >
+                              <option value="">Select category</option>
+                              {categories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                  {category.section ? `${category.section} · ${category.name}` : category.name}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleApprove({
+                                    transactionId: transaction.id,
+                                    categoryId: selectedCategoryId || null,
+                                  })
+                                }
+                                disabled={processing === transaction.id || selectedCategoryId.length === 0}
+                                className="btn-primary text-xs disabled:opacity-50"
                               >
-                                <option value="">Select category</option>
-                                {categories.map((category) => (
-                                  <option key={category.id} value={category.id}>
-                                    {category.section ? `${category.section} · ${category.name}` : category.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleApprove({
-                                      transactionId: transaction.id,
-                                      categoryId: selectedCategoryId || null,
-                                    })
-                                  }
-                                  disabled={processing === transaction.id || selectedCategoryId.length === 0}
-                                  className="btn-primary text-xs disabled:opacity-50"
-                                >
-                                  {processing === transaction.id ? 'Approving...' : 'Approve'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenCategoryFor(null)
-                                    setSelectedCategoryId('')
-                                  }}
-                                  className="btn-secondary text-xs"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
+                                {processing === transaction.id ? 'Approving...' : 'Approve'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenCategoryFor(null)
+                                  setSelectedCategoryId('')
+                                }}
+                                className="btn-ghost text-xs"
+                              >
+                                Cancel
+                              </button>
                             </div>
                           </div>
                         ) : (

@@ -5,6 +5,7 @@ import CashFlowChart from '@/components/CashFlowChart'
 import ReportsFilters from '@/components/ReportsFilters'
 import { parseDateRange, getDateRangeLabel, DateRangePreset } from '@/lib/date-utils'
 import { resolveAccountSelection } from '@/lib/accounts'
+import PageHeader from '@/components/PageHeader'
 
 async function getReports(startDate: string, endDate: string, accountId?: string) {
   try {
@@ -80,12 +81,15 @@ export default async function ReportsPage({
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold text-slate-900">Reports</h1>
-        <p className="text-sm text-slate-500">
-          Financial reports and analysis for your selected account.
-        </p>
-      </div>
+      <PageHeader
+        title="Reports"
+        description="Financial reports and analysis for your selected account."
+        actions={(
+          <a href="/transactions" className="btn-secondary">
+            View transactions
+          </a>
+        )}
+      />
 
       <ReportsFilters
         range={range}
@@ -134,14 +138,18 @@ export default async function ReportsPage({
       </div>
 
       <div className="card">
-        <h2 className="text-lg font-semibold text-slate-900">Cash Flow</h2>
-        <p className="text-xs text-slate-500">{rangeLabel} · {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}</p>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold text-slate-900">Cash Flow</h2>
+          <p className="text-xs text-slate-500">
+            {rangeLabel} · {new Date(startDate).toLocaleDateString()} to {new Date(endDate).toLocaleDateString()}
+          </p>
+        </div>
         <div className="mt-6">
           {cashFlowData.length > 0 ? (
             <CashFlowChart data={cashFlowData} />
           ) : (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
-              No cash flow data for this period.
+            <div className="card-muted text-sm text-slate-500">
+              No cash flow data for this period. Try expanding your date range.
             </div>
           )}
         </div>
@@ -150,9 +158,9 @@ export default async function ReportsPage({
       <div className="card">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Profit & Loss Statement</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Profit and Loss Statement</h2>
             <p className="text-xs text-slate-500">
-              {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}
+              {new Date(startDate).toLocaleDateString()} to {new Date(endDate).toLocaleDateString()}
             </p>
           </div>
         </div>
@@ -160,8 +168,8 @@ export default async function ReportsPage({
           {plReport.lines.length > 0 ? (
             <PLReport report={plReport} />
           ) : (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
-              No reviewed transactions in this period.
+            <div className="card-muted text-sm text-slate-500">
+              No reviewed transactions in this period. Review transactions or adjust your range.
             </div>
           )}
         </div>

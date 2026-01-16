@@ -18,7 +18,7 @@ export default function AlertBanner({
   actions?: ReactNode;
 }) {
   return (
-    <div className={`rounded-xl border px-4 py-3 text-sm ${styles[variant]}`}>
+    <div className={`rounded-2xl border px-4 py-3 text-sm ${styles[variant]}`}>
       {title && <p className="font-semibold">{title}</p>}
       <p className={title ? 'mt-1' : undefined}>{message}</p>
       {actions && <div className="mt-3">{actions}</div>}

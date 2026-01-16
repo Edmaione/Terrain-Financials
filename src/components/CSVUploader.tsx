@@ -7,6 +7,14 @@ import { ParsedTransaction } from '@/types'
 import { apiRequest } from '@/lib/api-client'
 import AlertBanner from '@/components/AlertBanner'
 
+type UploadSummary = {
+  parsed_count: number
+  imported_count: number
+  duplicate_count: number
+  error_count: number
+  errors?: string[]
+}
+
 export default function CSVUploader({
   accounts,
   selectedAccountId,
@@ -23,6 +31,7 @@ export default function CSVUploader({
   const [dragActive, setDragActive] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [accountId, setAccountId] = useState(selectedAccountId ?? '')
+  const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null)
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
 
   useEffect(() => {
@@ -73,6 +82,7 @@ export default function CSVUploader({
     setError(null)
     setSuccessMessage(null)
     setParsedData([])
+    setUploadSummary(null)
 
     try {
       const allTransactions: ParsedTransaction[] = []
@@ -100,19 +110,14 @@ export default function CSVUploader({
     setUploading(true)
     setError(null)
     setSuccessMessage(null)
+    setUploadSummary(null)
 
     try {
       if (!accountId) {
         throw new Error('Select an account before uploading.')
       }
 
-      const result = await apiRequest<{
-        parsed_count: number
-        imported_count: number
-        duplicate_count: number
-        error_count: number
-        errors?: string[]
-      }>('/api/upload/csv', {
+      const result = await apiRequest<UploadSummary>('/api/upload/csv', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -125,16 +130,17 @@ export default function CSVUploader({
 
       const message = `Imported ${result.imported_count} transactions. ${result.duplicate_count} duplicates skipped.`
       setSuccessMessage(message)
-
-      setTimeout(() => {
-        router.push(`/transactions?reviewed=false&range=all&account_id=${accountId}`)
-      }, 800)
+      setUploadSummary(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
       setUploading(false)
     }
   }
+
+  const reviewHref = accountId
+    ? `/transactions?reviewed=false&range=all&account_id=${accountId}`
+    : '/transactions?reviewed=false&range=all'
 
   return (
     <div className="space-y-6">
@@ -156,7 +162,7 @@ export default function CSVUploader({
 
           <div>
             <label htmlFor="file-upload" className="cursor-pointer">
-              <span className="text-slate-900 font-medium hover:text-slate-700">
+              <span className="text-slate-900 font-semibold hover:text-slate-700">
                 Upload CSV files
               </span>
               <input
@@ -172,7 +178,7 @@ export default function CSVUploader({
           </div>
 
           <p className="text-xs text-slate-500">
-            Supports Relay, Chase, Bank of America, or any standard bank export
+            Supports Relay, Chase, Bank of America, or any standard bank export.
           </p>
         </div>
       </div>
@@ -225,15 +231,45 @@ export default function CSVUploader({
           title="Upload complete"
           message={successMessage}
           actions={(
-            <button
-              type="button"
-              onClick={() => router.push(`/transactions?reviewed=false&range=all&account_id=${accountId}`)}
-              className="btn-primary"
-            >
-              View transactions
-            </button>
+            <a href={reviewHref} className="btn-primary">
+              Review unreviewed transactions
+            </a>
           )}
         />
+      )}
+
+      {uploadSummary && (
+        <div className="card-muted">
+          <h3 className="text-sm font-semibold text-slate-900">Import summary</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Parsed</p>
+              <p className="text-lg font-semibold text-slate-900">{uploadSummary.parsed_count}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Imported</p>
+              <p className="text-lg font-semibold text-emerald-600">{uploadSummary.imported_count}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Duplicates</p>
+              <p className="text-lg font-semibold text-slate-900">{uploadSummary.duplicate_count}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Errors</p>
+              <p className="text-lg font-semibold text-rose-600">{uploadSummary.error_count}</p>
+            </div>
+          </div>
+          {uploadSummary.errors && uploadSummary.errors.length > 0 && (
+            <details className="mt-4 text-sm text-slate-600">
+              <summary className="cursor-pointer font-medium text-slate-700">View row-level errors</summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-500">
+                {uploadSummary.errors.map((err, idx) => (
+                  <li key={idx}>{err}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
       )}
 
       {parsedData.length > 0 && (
@@ -250,24 +286,24 @@ export default function CSVUploader({
               disabled={uploading || !accountId}
               className="btn-primary disabled:opacity-50"
             >
-              {uploading ? 'Uploading...' : 'Import Transactions'}
+              {uploading ? 'Importing...' : 'Import Transactions'}
             </button>
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="max-h-96 overflow-y-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50 sticky top-0">
+              <table className="min-w-full">
+                <thead className="table-header sticky top-0">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Payee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Description</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Amount</th>
+                    <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3 text-left">Payee</th>
+                    <th className="px-4 py-3 text-left">Description</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-100">
+                <tbody className="bg-white">
                   {parsedData.slice(0, 50).map((transaction, idx) => (
-                    <tr key={idx}>
+                    <tr key={idx} className="table-row">
                       <td className="px-4 py-3 text-sm text-slate-900 whitespace-nowrap">
                         {transaction.date}
                       </td>
@@ -278,7 +314,7 @@ export default function CSVUploader({
                         {transaction.description}
                       </td>
                       <td
-                        className={`px-4 py-3 text-sm font-medium text-right whitespace-nowrap ${
+                        className={`px-4 py-3 text-sm font-semibold text-right whitespace-nowrap ${
                           transaction.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'
                         }`}
                       >
