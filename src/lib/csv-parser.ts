@@ -26,6 +26,23 @@ export async function parseCSV(file: File): Promise<ParsedTransaction[]> {
 }
 
 /**
+ * Parse CSV text (Node/test harness friendly)
+ */
+export function parseCSVText(csvText: string): ParsedTransaction[] {
+  const results = Papa.parse(csvText, {
+    header: true,
+    skipEmptyLines: true,
+  });
+
+  if (results.errors.length > 0) {
+    const firstError = results.errors[0];
+    throw new Error(firstError.message);
+  }
+
+  return detectFormatAndParse(results.data as CSVRow[]);
+}
+
+/**
  * Detect CSV format and parse accordingly
  */
 function detectFormatAndParse(rows: CSVRow[]): ParsedTransaction[] {

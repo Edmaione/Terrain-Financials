@@ -3,7 +3,10 @@ import { generateWeeklySummary } from '@/lib/reports'
 import WeeklySummary from '@/components/WeeklySummary'
 import DashboardStats from '@/components/DashboardStats'
 
+export const dynamic = 'force-dynamic'
+
 async function getDashboardData() {
+  const debugIngest = process.env.INGEST_DEBUG === 'true'
   const today = new Date()
   const weekStart = new Date(today)
   weekStart.setDate(today.getDate() - 7)
@@ -45,6 +48,14 @@ async function getDashboardData() {
     .eq('is_active', true)
   
   const currentCash = accounts?.reduce((sum, acc) => sum + (acc.current_balance || 0), 0) || 0
+
+  if (debugIngest) {
+    console.info('[ingest] Dashboard data fetched', {
+      unreviewedCount: unreviewedCount || 0,
+      monthTransactions: monthTransactions?.length || 0,
+      activeAccounts: accounts?.length || 0,
+    })
+  }
   
   return {
     weeklySummary,

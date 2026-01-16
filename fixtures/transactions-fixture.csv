@@ -1,0 +1,4 @@
+Date,Payee,Account #,Transaction Type,Description,Reference,Status,Amount,Currency,Balance
+2024-02-01,Relay Transfer,1234,ACH,Transfer to savings,REF-001,SETTLED,-250.00,USD,1250.00
+2024-02-02,Acme Supplies,,Card,Hardware supplies,REF-002,SETTLED,-89.45,USD,1160.55
+2024-02-03,Client Payment,,ACH,Invoice 1001,REF-003,SETTLED,500.00,USD,1660.55
