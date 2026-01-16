@@ -23,8 +23,8 @@ export default function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/80 backdrop-blur">
-      <div className="flex h-16 items-center gap-3 px-4 lg:px-8">
+    <header className="sticky top-0 z-30 border-b border-slate-200/50 bg-white/80 backdrop-blur">
+      <div className="flex h-14 items-center gap-3 px-4 lg:px-8">
         <Button
           variant="ghost"
           size="icon"
@@ -43,8 +43,8 @@ export default function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
             aria-label="Search"
           />
         </div>
-        <div className="hidden items-center gap-3 text-xs text-slate-500 md:flex">
-          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">
+        <div className="hidden items-center gap-2 text-xs text-slate-500 md:flex">
+          <div className="rounded-full border border-slate-200/70 bg-white px-3 py-1 text-xs text-slate-600">
             Updated {timeLabel}
           </div>
           <Button variant="secondary" size="sm" onClick={handleRefresh} aria-label="Refresh data">
