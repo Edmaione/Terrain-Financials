@@ -39,7 +39,7 @@ export default async function UploadPage({
         title="Upload transactions"
         description="Import CSV files from your bank to keep transactions up to date."
         actions={(
-          <Link href="/transactions?reviewed=false" className={buttonVariants({ variant: 'secondary' })}>
+          <Link href="/transactions?reviewed=false" className={buttonVariants({ variant: 'secondary', className: 'text-slate-700' })}>
             Review unreviewed
           </Link>
         )}
