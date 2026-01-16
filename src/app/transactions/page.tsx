@@ -105,6 +105,21 @@ async function getTransactions({
   return { data: data || [], error: null, dateRange }
 }
 
+async function getCategories() {
+  const { data, error } = await supabaseAdmin
+    .from('categories')
+    .select('id, name, section')
+    .order('section', { ascending: true })
+    .order('name', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching categories:', error)
+    return []
+  }
+
+  return data || []
+}
+
 export default async function TransactionsPage({
   searchParams,
 }: {
@@ -122,6 +137,7 @@ export default async function TransactionsPage({
     start: searchParams.start,
     end: searchParams.end,
   })
+  const categories = await getCategories()
 
   const lastUpdated = new Date().toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -180,6 +196,7 @@ export default async function TransactionsPage({
         transactions={transactions}
         filterSummary={filterSummary}
         allTimeHref={`/transactions?${allTimeParams.toString()}`}
+        categories={categories}
       />
     </div>
   )

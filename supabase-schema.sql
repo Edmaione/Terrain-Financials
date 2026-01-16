@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE account_type AS ENUM ('checking', 'savings', 'credit_card', 'loan', 'investment');
 
 -- Transaction status enum
-CREATE TYPE transaction_status AS ENUM ('SETTLED', 'PENDING', 'CANCELLED');
+CREATE TYPE transaction_status AS ENUM ('SETTLED', 'PENDING', 'APPROVED', 'CANCELLED');
 
 -- Category types enum
 CREATE TYPE category_type AS ENUM ('income', 'cogs', 'expense', 'other_income', 'other_expense');
@@ -96,6 +96,7 @@ CREATE TABLE transactions (
     ai_suggested_category UUID REFERENCES categories(id) ON DELETE SET NULL,
     ai_confidence DECIMAL(3,2), -- 0.00 to 1.00
     reviewed BOOLEAN DEFAULT false,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
     
     -- Notes and audit
     notes TEXT,

@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -17,13 +18,25 @@ export default function TransactionTable({
   transactions,
   filterSummary,
   allTimeHref = '/transactions?range=all',
+  categories,
 }: {
   transactions: any[]
   filterSummary: string
   allTimeHref?: string
+  categories: Array<{ id: string; name: string; section?: string | null }>
 }) {
   const [processing, setProcessing] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [openCategoryFor, setOpenCategoryFor] = useState<string | null>(null)
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!errorMessage) return
+    const timeout = window.setTimeout(() => setErrorMessage(null), 5000)
+    return () => window.clearTimeout(timeout)
+  }, [errorMessage])
 
   const filteredTransactions = useMemo(() => {
     if (!searchQuery.trim()) return transactions
@@ -45,25 +58,58 @@ export default function TransactionTable({
     })
   }, [searchQuery, transactions])
 
-  const handleApprove = async (transactionId: string, categoryId: string) => {
+  const handleApprove = async ({
+    transactionId,
+    categoryId,
+    markReviewed,
+  }: {
+    transactionId: string
+    categoryId?: string | null
+    markReviewed?: boolean
+  }) => {
     setProcessing(transactionId)
+    setErrorMessage(null)
 
     try {
-      const response = await fetch('/api/transactions', {
-        method: 'PATCH',
+      const payload: Record<string, unknown> = {
+        transaction_id: transactionId,
+        mark_reviewed: markReviewed ?? true,
+      }
+      if (categoryId !== undefined) {
+        payload.category_id = categoryId
+      }
+      const response = await fetch(`/api/transactions/${transactionId}/approve`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: transactionId,
-          category_id: categoryId,
-          reviewed: true,
-        }),
+        body: JSON.stringify(payload),
       })
 
-      if (!response.ok) throw new Error('Failed to update')
+      if (!response.ok) {
+        let payload: unknown = null
+        try {
+          payload = await response.json()
+        } catch (parseError) {
+          payload = await response.text()
+        }
+        console.error('Approve request failed', {
+          transactionId,
+          status: response.status,
+          payload,
+        })
+        setErrorMessage(
+          typeof payload === 'object' && payload && 'error' in payload
+            ? String((payload as { error?: string }).error)
+            : 'Failed to approve transaction.'
+        )
+        return
+      }
 
-      window.location.reload()
+      setOpenCategoryFor(null)
+      setSelectedCategoryId('')
+      router.refresh()
     } catch (error) {
-      alert('Failed to approve transaction')
+      console.error('Approve request failed', error)
+      setErrorMessage('Failed to approve transaction. Please try again.')
     } finally {
       setProcessing(null)
     }
@@ -88,6 +134,11 @@ export default function TransactionTable({
 
   return (
     <div className="card overflow-hidden p-0">
+      {errorMessage && (
+        <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-800">
+          {errorMessage}
+        </div>
+      )}
       <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Transactions</h2>
@@ -143,6 +194,10 @@ export default function TransactionTable({
                 const isPositive = transaction.amount >= 0
                 const accountName = transaction.account?.name || 'Unassigned'
                 const transferName = transaction.transfer_to_account?.name
+                const suggestedCategoryId =
+                  transaction.ai_suggested_category || transaction.ai_suggested?.id || null
+                const hasSuggestion = Boolean(suggestedCategoryId || transaction.ai_confidence)
+                const isCategoryPickerOpen = openCategoryFor === transaction.id
                 return (
                   <tr
                     key={transaction.id}
@@ -175,9 +230,22 @@ export default function TransactionTable({
                         </div>
                       ) : (
                         <div>
-                          <div className="font-medium text-blue-600">
-                            {transaction.ai_suggested?.name || 'Needs categorization'}
-                          </div>
+                          {transaction.ai_suggested?.name ? (
+                            <div className="font-medium text-blue-600">
+                              {transaction.ai_suggested.name}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenCategoryFor(transaction.id)
+                                setSelectedCategoryId('')
+                              }}
+                              className="font-medium text-blue-600 hover:text-blue-700"
+                            >
+                              Needs categorization
+                            </button>
+                          )}
                           {transaction.ai_confidence && (
                             <div className="text-xs text-slate-500">
                               {Math.round(transaction.ai_confidence * 100)}% confidence
@@ -207,14 +275,94 @@ export default function TransactionTable({
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {!transaction.reviewed && transaction.ai_suggested_category && (
-                        <button
-                          onClick={() => handleApprove(transaction.id, transaction.ai_suggested_category)}
-                          disabled={processing === transaction.id}
-                          className="text-primary-600 hover:text-primary-700 disabled:opacity-50"
-                        >
-                          {processing === transaction.id ? 'Approving...' : 'Approve'}
-                        </button>
+                      {!transaction.reviewed && (
+                        <div className="flex flex-col items-end gap-2">
+                          {isCategoryPickerOpen ? (
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="flex flex-col items-end gap-2">
+                                <select
+                                  value={selectedCategoryId}
+                                  onChange={(event) => setSelectedCategoryId(event.target.value)}
+                                  className="input w-48 text-xs"
+                                >
+                                  <option value="">Select category</option>
+                                  {categories.map((category) => (
+                                    <option key={category.id} value={category.id}>
+                                      {category.section ? `${category.section} · ${category.name}` : category.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleApprove({
+                                        transactionId: transaction.id,
+                                        categoryId: selectedCategoryId || null,
+                                      })
+                                    }
+                                    disabled={
+                                      processing === transaction.id || selectedCategoryId.length === 0
+                                    }
+                                    className="btn-primary text-xs disabled:opacity-50"
+                                  >
+                                    {processing === transaction.id ? 'Approving...' : 'Approve'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenCategoryFor(null)
+                                      setSelectedCategoryId('')
+                                    }}
+                                    className="btn-secondary text-xs"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (suggestedCategoryId) {
+                                  void handleApprove({
+                                    transactionId: transaction.id,
+                                    categoryId: suggestedCategoryId,
+                                  })
+                                  return
+                                }
+                                if (hasSuggestion) {
+                                  void handleApprove({ transactionId: transaction.id })
+                                  return
+                                }
+                                setOpenCategoryFor(transaction.id)
+                                setSelectedCategoryId('')
+                              }}
+                              disabled={processing === transaction.id}
+                              className="btn-primary text-xs disabled:opacity-50"
+                            >
+                              {processing === transaction.id
+                                ? 'Approving...'
+                                : hasSuggestion
+                                  ? 'Approve'
+                                  : 'Categorize + Approve'}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleApprove({
+                                transactionId: transaction.id,
+                                markReviewed: true,
+                              })
+                            }
+                            disabled={processing === transaction.id}
+                            className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                          >
+                            Mark reviewed
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
