@@ -199,5 +199,5 @@ export default async function TransactionsPage({
         categories={categories}
       />
     </div>
-  )
+  );
 }

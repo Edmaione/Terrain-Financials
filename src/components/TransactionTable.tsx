@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -114,7 +114,7 @@ export default function TransactionTable({
       setErrorMessage(errorText)
       window.alert(errorText)
     } finally {
-      setProcessing(null)
+      setProcessing(null);
     }
   }
 
@@ -132,7 +132,7 @@ export default function TransactionTable({
           </a>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -371,5 +371,5 @@ export default function TransactionTable({
         </div>
       )}
     </div>
-  )
+  );
 }
