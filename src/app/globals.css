@@ -4,28 +4,56 @@
 
 @layer base {
   body {
-    @apply text-gray-900;
+    @apply bg-slate-50 text-slate-900 antialiased;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 transition-colors;
+    @apply inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40;
   }
-  
+
   .btn-secondary {
-    @apply bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors;
+    @apply inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10;
   }
-  
+
   .card {
-    @apply bg-white rounded-lg shadow p-6;
+    @apply rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm;
   }
-  
+
   .input {
-    @apply border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200;
   }
-  
+
   .label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
+    @apply block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1;
+  }
+
+  .pill {
+    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition;
+  }
+
+  .pill-active {
+    @apply border-slate-900 bg-slate-900 text-white;
+  }
+
+  .pill-inactive {
+    @apply border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+
+  .badge-green {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .badge-amber {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .badge-purple {
+    @apply bg-purple-100 text-purple-700;
   }
 }
