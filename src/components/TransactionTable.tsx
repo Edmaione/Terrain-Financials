@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { IconCheck, IconClipboard } from '@/components/ui/icons'
 import { apiRequest } from '@/lib/api-client'
+import { getCategoryDisplayLabel, NEEDS_CATEGORIZATION_LABEL } from '@/lib/transactions'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
@@ -276,20 +277,19 @@ export default function TransactionTable({
               const accountName = transaction.account?.name || 'Unassigned'
               const transferName = transaction.transfer_to_account?.name
               const suggestedCategoryId =
-                transaction.ai_suggested_category || transaction.ai_suggested?.id || null
+                transaction.primary_category_id ||
+                transaction.category_id ||
+                transaction.ai_suggested_category ||
+                transaction.ai_suggested?.id ||
+                null
               const resolvedCategory =
                 transaction.primary_category ||
                 transaction.category ||
                 transaction.subcategory ||
                 null
-              const needsCategorizationLabel = 'Needs categorization'
-              const mappedCategoryName = transaction.category_name?.trim() || null
-              const rawCategoryName = resolvedCategory?.name ?? mappedCategoryName ?? null
-              const categoryName =
-                rawCategoryName && rawCategoryName.startsWith(needsCategorizationLabel)
-                  ? needsCategorizationLabel
-                  : rawCategoryName || needsCategorizationLabel
+              const categoryName = getCategoryDisplayLabel(transaction)
               const categorySection = resolvedCategory?.section || null
+              const needsCategorization = categoryName === NEEDS_CATEGORIZATION_LABEL
               const isCategoryPickerOpen = openCategoryFor === transaction.id
               return (
                 <TableRow
@@ -328,10 +328,8 @@ export default function TransactionTable({
                   <TableCell>
                     {isReviewed ? (
                       <div>
-                        <div className="font-medium text-slate-900">
-                          {categoryName}
-                        </div>
-                        {categorySection && categoryName !== 'Needs categorization' && (
+                        <div className="font-medium text-slate-900">{categoryName}</div>
+                        {categorySection && !needsCategorization && (
                           <div className="text-xs text-slate-500">
                             {categorySection}
                           </div>
@@ -344,7 +342,7 @@ export default function TransactionTable({
                             {transaction.ai_suggested.name}
                             <span className="ml-2 text-xs text-slate-500">AI suggested</span>
                           </div>
-                        ) : categoryName !== needsCategorizationLabel ? (
+                        ) : !needsCategorization ? (
                           <div className="font-medium text-slate-900">{categoryName}</div>
                         ) : (
                           <button

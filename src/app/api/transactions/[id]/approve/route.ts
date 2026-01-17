@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeExternalCategoryLabel } from '@/lib/category-mappings'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createRuleFromApproval } from '@/lib/categorization-engine'
 import { recordReviewAction } from '@/lib/review-actions'
@@ -28,7 +29,9 @@ export async function POST(
 
     const { data: transaction, error: fetchError } = await supabaseAdmin
       .from('transactions')
-      .select('id, payee, description, status, review_status, category_id, primary_category_id')
+      .select(
+        'id, account_id, payee, description, status, review_status, category_id, primary_category_id, category_name'
+      )
       .eq('id', transactionId)
       .single()
 
@@ -83,6 +86,33 @@ export async function POST(
         await createRuleFromApproval(transaction.payee, transaction.description, categoryId)
       } catch (ruleError) {
         console.warn('[API] Rule creation failed (non-fatal):', ruleError)
+      }
+    }
+
+    if (shouldReview && hasCategoryId && categoryId && transaction?.category_name) {
+      const normalizedLabel = normalizeExternalCategoryLabel(transaction.category_name)
+      if (normalizedLabel) {
+        const { data: existingMapping } = await supabaseAdmin
+          .from('category_mappings')
+          .select('id, category_id')
+          .eq('account_id', transaction.account_id)
+          .eq('external_label_norm', normalizedLabel)
+          .maybeSingle()
+
+        if (!existingMapping) {
+          const { error: mappingError } = await supabaseAdmin
+            .from('category_mappings')
+            .insert({
+              account_id: transaction.account_id,
+              external_label: transaction.category_name,
+              external_label_norm: normalizedLabel,
+              category_id: categoryId,
+            })
+
+          if (mappingError) {
+            console.warn('[API] Category mapping creation failed (non-fatal):', mappingError)
+          }
+        }
       }
     }
 
