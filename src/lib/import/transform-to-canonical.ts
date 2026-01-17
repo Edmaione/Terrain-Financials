@@ -12,6 +12,14 @@ export type TransformError = {
   message: string
 }
 
+export type CanonicalImportRow = ParsedTransaction & {
+  rowNumber: number
+  reviewed: boolean
+  import_id: string | null
+  import_row_hash: string
+  account_id?: string | null
+}
+
 const VALID_STATUSES = new Set<TransactionStatus>([
   'SETTLED',
   'PENDING',
@@ -66,23 +74,71 @@ function readMappedValue(row: CSVRow, key: string | null) {
   return row[key]
 }
 
-export type TransformedImportRow = ParsedTransaction & {
-  rowNumber: number
+async function sha256Hex(payload: string): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(payload)
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', data)
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+  }
+
+  const { createHash } = await import('crypto')
+  return createHash('sha256').update(payload).digest('hex')
 }
 
-export function transformImportRows({
+function buildImportRowHashPayload({
+  rowNumber,
+  date,
+  payee,
+  description,
+  memo,
+  amount,
+  reference,
+  status,
+  source_system,
+}: {
+  rowNumber: number
+  date: string
+  payee: string
+  description: string | null
+  memo: string | null
+  amount: number
+  reference: string | null
+  status: TransactionStatus
+  source_system: ParsedTransaction['source_system']
+}) {
+  return JSON.stringify({
+    rowNumber,
+    date,
+    payee: payee.trim().toLowerCase(),
+    description: description ?? '',
+    memo: memo ?? '',
+    amount,
+    reference: reference ?? '',
+    status,
+    source_system: source_system ?? 'manual',
+  })
+}
+
+export async function transformImportRows({
   rows,
   mapping,
   amountStrategy,
   sourceSystem = 'manual',
+  accountId,
+  importId,
 }: {
   rows: CSVRow[]
   mapping: ImportFieldMapping
   amountStrategy: AmountStrategy
   sourceSystem?: ParsedTransaction['source_system']
-}) {
+  accountId?: string | null
+  importId?: string | null
+}): Promise<{ transactions: CanonicalImportRow[]; errors: TransformError[] }> {
   const errors: TransformError[] = []
-  const transactions: TransformedImportRow[] = []
+  const transactions: CanonicalImportRow[] = []
 
   for (const [index, row] of rows.entries()) {
     const rowNumber = index + 1
@@ -135,6 +191,20 @@ export function transformImportRows({
     const reference = normalizeValue(readMappedValue(row, mapping.reference))
     const resolvedDescription = description ?? memo ?? reference ?? payee ?? null
     const resolvedPayee = payee ?? resolvedDescription ?? 'Unknown'
+    const status = parseStatus(readMappedValue(row, mapping.status)) ?? 'SETTLED'
+    const importRowHash = await sha256Hex(
+      buildImportRowHashPayload({
+        rowNumber,
+        date,
+        payee: resolvedPayee,
+        description: resolvedDescription,
+        memo,
+        amount,
+        reference,
+        status,
+        source_system: sourceSystem,
+      })
+    )
 
     transactions.push({
       date,
@@ -143,10 +213,14 @@ export function transformImportRows({
       memo,
       amount,
       reference,
-      status: parseStatus(readMappedValue(row, mapping.status)) ?? 'SETTLED',
+      status,
       source_system: sourceSystem,
       raw_data: row,
       rowNumber,
+      reviewed: false,
+      import_id: importId ?? null,
+      import_row_hash: importRowHash,
+      account_id: accountId ?? null,
     })
   }
 

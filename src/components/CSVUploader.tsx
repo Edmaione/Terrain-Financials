@@ -10,11 +10,10 @@ import {
   detectMappingFromHeaders,
   validateMapping,
 } from '@/lib/import-mapping'
-import { transformImportRows } from '@/lib/import/transform-to-canonical'
+import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-to-canonical'
 import { AmountStrategy, CSVRow, ImportFieldMapping, ImportRecord } from '@/types'
 import { apiRequest } from '@/lib/api-client'
 import AlertBanner from '@/components/AlertBanner'
-import FieldMappingPanel from '@/components/FieldMappingPanel'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { useToast } from '@/components/ui/Toast'
@@ -56,6 +55,11 @@ export default function CSVUploader({
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [accountId, setAccountId] = useState(selectedAccountId ?? '')
   const [currentImport, setCurrentImport] = useState<ImportRecord | null>(null)
+  const [previewResult, setPreviewResult] = useState<{
+    transactions: CanonicalImportRow[]
+    errors: Array<{ rowNumber: number; field: string; message: string }>
+  }>({ transactions: [], errors: [] })
+  const [previewLoading, setPreviewLoading] = useState(false)
   const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
 
@@ -266,29 +270,52 @@ export default function CSVUploader({
     return () => window.clearInterval(interval)
   }, [currentImport?.id, currentImport?.status])
 
-  const progressPercent = useMemo(() => {
-    const total = currentImport?.total_rows ?? 0
-    if (!currentImport || total === 0) return 0
-    const processed = currentImport.processed_rows ?? 0
-    return Math.min(100, Math.round((processed / total) * 100))
-  }, [currentImport])
-
   const mappingValidation = useMemo(
     () => validateMapping({ mapping, amountStrategy }),
     [mapping, amountStrategy]
   )
 
-  const previewResult = useMemo(() => {
+  useEffect(() => {
+    let cancelled = false
+
     if (parsedRows.length === 0) {
-      return { transactions: [], errors: [] }
+      setPreviewResult({ transactions: [], errors: [] })
+      setPreviewLoading(false)
+      return undefined
     }
 
-    return transformImportRows({
-      rows: parsedRows,
-      mapping,
-      amountStrategy,
-    })
-  }, [parsedRows, mapping, amountStrategy])
+    const buildPreview = async () => {
+      setPreviewLoading(true)
+      try {
+        const result = await transformImportRows({
+          rows: parsedRows,
+          mapping,
+          amountStrategy,
+          accountId: accountId || null,
+        })
+        if (!cancelled) {
+          setPreviewResult(result)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message =
+            err instanceof Error ? err.message : 'Failed to build preview'
+          setError(message)
+          setPreviewResult({ transactions: [], errors: [] })
+        }
+      } finally {
+        if (!cancelled) {
+          setPreviewLoading(false)
+        }
+      }
+    }
+
+    void buildPreview()
+
+    return () => {
+      cancelled = true
+    }
+  }, [parsedRows, mapping, amountStrategy, accountId])
 
   const previewErrorSummary = useMemo(() => {
     if (parsedRows.length === 0 || previewResult.errors.length === 0) {
@@ -347,6 +374,14 @@ export default function CSVUploader({
         throw new Error(mappingValidation.errors.join(' '))
       }
 
+      if (previewLoading) {
+        throw new Error('Preview is still loading. Please wait.')
+      }
+
+      if (previewResult.transactions.length === 0) {
+        throw new Error('No valid transactions to import.')
+      }
+
       let mappingTemplateId = mappingId
       if (saveTemplate) {
         const payload = {
@@ -376,6 +411,9 @@ export default function CSVUploader({
       formData.append('mapping', JSON.stringify(buildMappingPayload(mapping)))
       formData.append('amountStrategy', amountStrategy)
       formData.append('headerFingerprint', headerFingerprint)
+      formData.append('canonicalRows', JSON.stringify(previewResult.transactions))
+      formData.append('totalRows', String(parsedRows.length))
+      formData.append('errorRows', String(previewResult.errors.length))
       if (mappingTemplateId) {
         formData.append('mappingId', mappingTemplateId)
       }
@@ -427,6 +465,7 @@ export default function CSVUploader({
   const reviewHref = accountId
     ? `/transactions?reviewed=false&range=all&account_id=${accountId}`
     : '/transactions?reviewed=false&range=all'
+  const importIsActive = ['queued', 'running'].includes(currentImport?.status ?? '')
 
   return (
     <div className="space-y-6">
@@ -544,14 +583,15 @@ export default function CSVUploader({
           </div>
 
           <div className="mt-4">
-            <div className="h-2 w-full rounded-full bg-slate-200">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
               <div
-                className="h-2 rounded-full bg-emerald-500 transition-all"
-                style={{ width: `${progressPercent}%` }}
+                className={`h-2 rounded-full bg-emerald-500 ${importIsActive ? 'w-1/2 animate-pulse' : 'w-full'}`}
               />
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              {currentImport.processed_rows ?? 0} of {currentImport.total_rows ?? 0} rows processed
+              {importIsActive
+                ? 'Importing transactions. This may take a moment.'
+                : 'Import complete.'}
             </p>
           </div>
 
@@ -588,31 +628,100 @@ export default function CSVUploader({
       )}
 
       {parsedRows.length > 0 && (
-        <FieldMappingPanel
-          headers={parsedHeaders}
-          mapping={mapping}
-          amountStrategy={amountStrategy}
-          mappingValidationErrors={mappingValidation.errors}
-          previewErrorSummary={previewErrorSummary}
-          mappingLoading={mappingLoading}
-          saveTemplate={saveTemplate}
-          mappingName={mappingName}
-          onMappingChange={updateMappingField}
-          onAmountStrategyChange={(value) => {
-            setAmountStrategy(value)
-            setMappingDirty(true)
-          }}
-          onSaveTemplateChange={setSaveTemplate}
-          onMappingNameChange={setMappingName}
-        />
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Field mapping</h3>
+              <p className="text-xs text-slate-500">
+                Match the preview columns to the CSV headers below.
+              </p>
+            </div>
+            {mappingLoading && (
+              <span className="text-xs text-slate-400">Loading saved mapping…</span>
+            )}
+          </div>
+
+          {mappingValidation.errors.length > 0 && (
+            <AlertBanner
+              variant="error"
+              title="Mapping required"
+              message={mappingValidation.errors.join(' ')}
+            />
+          )}
+
+          {previewErrorSummary && (
+            <AlertBanner
+              variant="info"
+              title="Parsing warning"
+              message={`We could not parse ${previewErrorSummary.total} rows (${Math.round(
+                previewErrorSummary.errorRate * 100
+              )}%). Check ${previewErrorSummary.dateErrors} date and ${previewErrorSummary.amountErrors} amount values.`}
+            />
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Amount strategy
+              </label>
+              <Select
+                value={amountStrategy}
+                onChange={(event) => {
+                  setAmountStrategy(event.target.value as AmountStrategy)
+                  setMappingDirty(true)
+                }}
+                className="mt-2 w-full"
+              >
+                <option value="signed">Signed amount</option>
+                <option value="inflow_outflow">Inflow / Outflow</option>
+              </Select>
+              <p className="mt-2 text-xs text-slate-500">
+                Signed amount expects negatives for debits. Inflow/outflow will subtract outflow
+                from inflow.
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  checked={saveTemplate}
+                  onChange={(event) => setSaveTemplate(event.target.checked)}
+                />
+                <span>
+                  Save mapping as template
+                  <span className="block text-xs text-slate-500">
+                    Reuse this mapping the next time these headers appear.
+                  </span>
+                </span>
+              </label>
+              {saveTemplate && (
+                <div className="mt-3">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Template name
+                  </label>
+                  <input
+                    type="text"
+                    value={mappingName}
+                    onChange={(event) => setMappingName(event.target.value)}
+                    placeholder="e.g. Chase business checking"
+                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
-      {previewResult.transactions.length > 0 && (
+      {parsedRows.length > 0 && (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-sm font-medium text-slate-900">
-                Parsed {previewResult.transactions.length} transactions
+                {previewLoading
+                  ? 'Building preview'
+                  : `Parsed ${previewResult.transactions.length} transactions`}
               </h3>
               <p className="text-xs text-slate-500">Review the preview before importing.</p>
             </div>
@@ -622,6 +731,8 @@ export default function CSVUploader({
                 uploading ||
                 !accountId ||
                 !mappingValidation.isValid ||
+                previewLoading ||
+                previewResult.transactions.length === 0 ||
                 ['queued', 'running'].includes(currentImport?.status ?? '')
               }
               variant="primary"
@@ -635,33 +746,206 @@ export default function CSVUploader({
               <table className="min-w-full">
                 <thead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 text-left">Date</th>
-                    <th className="px-4 py-3 text-left">Payee</th>
-                    <th className="px-4 py-3 text-left">Description</th>
-                    <th className="px-4 py-3 text-right">Amount</th>
+                    <th className="px-4 py-3 text-left">
+                      <div className="space-y-2">
+                        <span>Date</span>
+                        <Select
+                          value={mapping.date ?? ''}
+                          onChange={(event) => updateMappingField('date', event.target.value)}
+                          className="w-full text-xs"
+                        >
+                          <option value="">Select column</option>
+                          {parsedHeaders.map((header) => (
+                            <option key={`date-${header}`} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left">
+                      <div className="space-y-2">
+                        <span>Payee</span>
+                        <Select
+                          value={mapping.payee ?? ''}
+                          onChange={(event) => updateMappingField('payee', event.target.value)}
+                          className="w-full text-xs"
+                        >
+                          <option value="">Select column</option>
+                          {parsedHeaders.map((header) => (
+                            <option key={`payee-${header}`} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left">
+                      <div className="space-y-2">
+                        <span>Description</span>
+                        <Select
+                          value={mapping.description ?? ''}
+                          onChange={(event) =>
+                            updateMappingField('description', event.target.value)
+                          }
+                          className="w-full text-xs"
+                        >
+                          <option value="">Select column</option>
+                          {parsedHeaders.map((header) => (
+                            <option key={`description-${header}`} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left">
+                      <div className="space-y-2">
+                        <span>Memo</span>
+                        <Select
+                          value={mapping.memo ?? ''}
+                          onChange={(event) => updateMappingField('memo', event.target.value)}
+                          className="w-full text-xs"
+                        >
+                          <option value="">Select column</option>
+                          {parsedHeaders.map((header) => (
+                            <option key={`memo-${header}`} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left">
+                      <div className="space-y-2">
+                        <span>Reference</span>
+                        <Select
+                          value={mapping.reference ?? ''}
+                          onChange={(event) =>
+                            updateMappingField('reference', event.target.value)
+                          }
+                          className="w-full text-xs"
+                        >
+                          <option value="">Select column</option>
+                          {parsedHeaders.map((header) => (
+                            <option key={`reference-${header}`} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left">
+                      <div className="space-y-2">
+                        <span>Status</span>
+                        <Select
+                          value={mapping.status ?? ''}
+                          onChange={(event) => updateMappingField('status', event.target.value)}
+                          className="w-full text-xs"
+                        >
+                          <option value="">Select column</option>
+                          {parsedHeaders.map((header) => (
+                            <option key={`status-${header}`} value={header}>
+                              {header}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-right">
+                      <div className="space-y-2">
+                        <span>Amount</span>
+                        {amountStrategy === 'signed' ? (
+                          <Select
+                            value={mapping.amount ?? ''}
+                            onChange={(event) => updateMappingField('amount', event.target.value)}
+                            className="w-full text-xs"
+                          >
+                            <option value="">Select column</option>
+                            {parsedHeaders.map((header) => (
+                              <option key={`amount-${header}`} value={header}>
+                                {header}
+                              </option>
+                            ))}
+                          </Select>
+                        ) : (
+                          <div className="space-y-2">
+                            <Select
+                              value={mapping.inflow ?? ''}
+                              onChange={(event) => updateMappingField('inflow', event.target.value)}
+                              className="w-full text-xs"
+                            >
+                              <option value="">Inflow column</option>
+                              {parsedHeaders.map((header) => (
+                                <option key={`inflow-${header}`} value={header}>
+                                  {header}
+                                </option>
+                              ))}
+                            </Select>
+                            <Select
+                              value={mapping.outflow ?? ''}
+                              onChange={(event) =>
+                                updateMappingField('outflow', event.target.value)
+                              }
+                              className="w-full text-xs"
+                            >
+                              <option value="">Outflow column</option>
+                              {parsedHeaders.map((header) => (
+                                <option key={`outflow-${header}`} value={header}>
+                                  {header}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {previewResult.transactions.slice(0, 50).map((transaction, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 text-sm text-slate-700">
-                      <td className="px-4 py-3 text-sm text-slate-900 whitespace-nowrap">
-                        {transaction.date}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-900">
-                        {transaction.payee}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-500">
-                        {transaction.description}
-                      </td>
+                  {previewResult.transactions.length === 0 ? (
+                    <tr>
                       <td
-                        className={`px-4 py-3 text-sm font-semibold text-right whitespace-nowrap ${
-                          transaction.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                        }`}
+                        colSpan={7}
+                        className="px-4 py-6 text-center text-sm text-slate-500"
                       >
-                        {transaction.amount >= 0 ? '+' : ''}${Math.abs(transaction.amount).toFixed(2)}
+                        No preview rows yet. Adjust the mapping to continue.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    previewResult.transactions.slice(0, 50).map((transaction) => (
+                      <tr
+                        key={transaction.import_row_hash}
+                        className="border-b border-slate-100 text-sm text-slate-700"
+                      >
+                        <td className="px-4 py-3 text-sm text-slate-900 whitespace-nowrap">
+                          {transaction.date}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-900">
+                          {transaction.payee}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-500">
+                          {transaction.description ?? 'No description'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-500">
+                          {transaction.memo ?? ''}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-500">
+                          {transaction.reference ?? ''}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-500">
+                          {transaction.status ?? 'SETTLED'}
+                        </td>
+                        <td
+                          className={`px-4 py-3 text-sm font-semibold text-right whitespace-nowrap ${
+                            transaction.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                          }`}
+                        >
+                          {transaction.amount >= 0 ? '+' : ''}${Math.abs(transaction.amount).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

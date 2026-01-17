@@ -1,8 +1,7 @@
-import { createHash } from 'crypto'
 import { parseCSVText } from '@/lib/csv-parser'
-import { prepareCsvTransactions, resolveTransactionFields, type PreparedTransaction } from '@/lib/csv-importer'
+import { prepareCsvTransactions, type PreparedTransaction } from '@/lib/csv-importer'
 import { planCsvImport } from '@/lib/import-idempotency'
-import { transformImportRows } from '@/lib/import/transform-to-canonical'
+import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-to-canonical'
 import { validateMapping } from '@/lib/import-mapping'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { AmountStrategy, ImportFieldMapping, ParsedTransaction } from '@/types'
@@ -21,26 +20,6 @@ type ImportRow = {
 type InsertedTransactionRow = {
   id: string
   import_row_hash: string | null
-}
-
-function hashImportRow(transaction: ParsedTransaction, rowNumber: number) {
-  const { description, memo, reference } = resolveTransactionFields(transaction)
-  const normalizedPayload = {
-    rowNumber,
-    date: transaction.date,
-    payee: transaction.payee?.trim().toLowerCase() ?? '',
-    description: description?.trim() ?? '',
-    memo: memo?.trim() ?? '',
-    amount: transaction.amount,
-    reference: reference?.trim() ?? '',
-    status: transaction.status ?? 'SETTLED',
-    source_system: transaction.source_system ?? 'manual',
-    raw_data: transaction.raw_data ?? {},
-  }
-
-  return createHash('sha256')
-    .update(JSON.stringify(normalizedPayload))
-    .digest('hex')
 }
 
 async function fetchImport(importId: string) {
@@ -173,13 +152,19 @@ export async function runCsvImport({
   mapping,
   amountStrategy,
   sourceSystem,
+  canonicalRows,
+  totalRows,
+  errorRows: providedErrorRows,
 }: {
   importId: string
   accountId: string
-  fileText: string
+  fileText?: string
   mapping: ImportFieldMapping
   amountStrategy: AmountStrategy
   sourceSystem?: ParsedTransaction['source_system']
+  canonicalRows?: CanonicalImportRow[]
+  totalRows?: number
+  errorRows?: number
 }) {
   const debugIngest = process.env.INGEST_DEBUG === 'true'
   const shouldLogDescriptionStats = process.env.NODE_ENV !== 'production'
@@ -215,13 +200,30 @@ export async function runCsvImport({
       return
     }
 
-    const parsedCsv = parseCSVText(fileText)
-    const { transactions: parsedTransactions, errors: transformErrors } = transformImportRows({
-      rows: parsedCsv.rows,
-      mapping,
-      amountStrategy,
-      sourceSystem,
-    })
+    let parsedTransactions: CanonicalImportRow[] = []
+    let transformErrors: Array<{ rowNumber: number; field: string; message: string }> = []
+    let totalRowCount = totalRows ?? 0
+
+    if (canonicalRows && canonicalRows.length > 0) {
+      parsedTransactions = canonicalRows
+      transformErrors = []
+      totalRowCount = totalRowCount || canonicalRows.length + (providedErrorRows ?? 0)
+    } else if (fileText) {
+      const parsedCsv = parseCSVText(fileText)
+      totalRowCount = totalRowCount || parsedCsv.rows.length
+      const transformResult = await transformImportRows({
+        rows: parsedCsv.rows,
+        mapping,
+        amountStrategy,
+        sourceSystem,
+        accountId,
+        importId,
+      })
+      parsedTransactions = transformResult.transactions
+      transformErrors = transformResult.errors
+    } else {
+      throw new Error('Missing canonical rows or CSV file content for import.')
+    }
 
     if (debugIngest) {
       console.info('[ingest] Parsed transactions', {
@@ -234,7 +236,7 @@ export async function runCsvImport({
 
     await supabaseAdmin
       .from('imports')
-      .update({ total_rows: parsedCsv.rows.length })
+      .update({ total_rows: totalRowCount })
       .eq('id', importId)
 
     const { data: accountsLookup } = await supabaseAdmin
@@ -247,7 +249,7 @@ export async function runCsvImport({
     let processedRows = 0
     let insertedRows = 0
     let skippedRows = 0
-    let errorRows = transformErrors.length
+    let errorRows = providedErrorRows ?? transformErrors.length
     let descriptionPopulated = 0
     let descriptionMissing = 0
 
@@ -270,7 +272,7 @@ export async function runCsvImport({
         accounts: activeAccounts,
         importId,
         rowOffset: offset,
-        rowHashForTransaction: hashImportRow,
+        rowHashForTransaction: undefined,
         debug: debugIngest,
       })
 

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { runCsvImport } from '@/lib/import-runner'
+import { CanonicalImportRow } from '@/lib/import/transform-to-canonical'
 import { validateMapping } from '@/lib/import-mapping'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { AmountStrategy, ImportFieldMapping } from '@/types'
@@ -15,6 +16,9 @@ export async function POST(request: NextRequest) {
     const headerFingerprint = formData.get('headerFingerprint')
     const mappingId = formData.get('mappingId')
     const sourceSystem = formData.get('sourceSystem')
+    const canonicalPayload = formData.get('canonicalRows')
+    const totalRowsPayload = formData.get('totalRows')
+    const errorRowsPayload = formData.get('errorRows')
 
     if (!accountId || typeof accountId !== 'string') {
       return NextResponse.json(
@@ -75,6 +79,37 @@ export async function POST(request: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer())
     const fileSha256 = createHash('sha256').update(buffer).digest('hex')
+    let canonicalRows: CanonicalImportRow[] | undefined
+    let totalRows: number | undefined
+    let errorRows: number | undefined
+
+    if (canonicalPayload && typeof canonicalPayload === 'string') {
+      try {
+        const parsed = JSON.parse(canonicalPayload)
+        if (!Array.isArray(parsed)) {
+          return NextResponse.json(
+            { ok: false, error: 'Canonical rows payload must be an array.' },
+            { status: 400 }
+          )
+        }
+        canonicalRows = parsed as CanonicalImportRow[]
+      } catch (error) {
+        return NextResponse.json(
+          { ok: false, error: 'Invalid canonical rows payload.' },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (totalRowsPayload && typeof totalRowsPayload === 'string') {
+      const parsed = Number.parseInt(totalRowsPayload, 10)
+      totalRows = Number.isFinite(parsed) ? parsed : undefined
+    }
+
+    if (errorRowsPayload && typeof errorRowsPayload === 'string') {
+      const parsed = Number.parseInt(errorRowsPayload, 10)
+      errorRows = Number.isFinite(parsed) ? parsed : undefined
+    }
 
     const { data: existingImport } = await supabaseAdmin
       .from('imports')
@@ -94,6 +129,9 @@ export async function POST(request: NextRequest) {
           amountStrategy: amountStrategy as AmountStrategy,
           sourceSystem:
             typeof sourceSystem === 'string' && sourceSystem.length > 0 ? sourceSystem : undefined,
+          canonicalRows,
+          totalRows,
+          errorRows,
         })
       }
 
@@ -167,6 +205,9 @@ export async function POST(request: NextRequest) {
       amountStrategy: amountStrategy as AmountStrategy,
       sourceSystem:
         typeof sourceSystem === 'string' && sourceSystem.length > 0 ? sourceSystem : undefined,
+      canonicalRows,
+      totalRows,
+      errorRows,
     })
 
     return NextResponse.json({
