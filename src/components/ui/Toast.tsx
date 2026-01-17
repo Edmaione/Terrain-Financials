@@ -4,7 +4,7 @@ import * as React from 'react'
 import { IconAlertTriangle, IconCheckCircle, IconInfo, IconX } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 
-type ToastVariant = 'success' | 'error' | 'info'
+type ToastVariant = 'success' | 'error' | 'info' | 'warning'
 
 type Toast = {
   id: string
@@ -23,18 +23,21 @@ const iconMap: Record<ToastVariant, React.ElementType> = {
   success: IconCheckCircle,
   error: IconAlertTriangle,
   info: IconInfo,
+  warning: IconAlertTriangle,
 }
 
 const variantStyles: Record<ToastVariant, string> = {
   success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
   error: 'border-rose-200 bg-rose-50 text-rose-900',
   info: 'border-slate-200 bg-white text-slate-900',
+  warning: 'border-amber-200 bg-amber-50 text-amber-900',
 }
 
 const iconStyles: Record<ToastVariant, string> = {
   success: 'text-emerald-600',
   error: 'text-rose-600',
   info: 'text-slate-600',
+  warning: 'text-amber-600',
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
