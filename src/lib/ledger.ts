@@ -61,9 +61,63 @@ export function normalizePayeeName(value: string) {
   return value.trim().replace(/\s+/g, ' ')
 }
 
+type NormalizedValue =
+  | string
+  | number
+  | boolean
+  | null
+  | NormalizedValue[]
+  | { [key: string]: NormalizedValue }
+
+function normalizeForHash(value: unknown): NormalizedValue {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') {
+    return value.trim().replace(/\s+/g, ' ')
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeForHash(entry))
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+
+    const normalized: Record<string, NormalizedValue> = {}
+    entries.forEach(([key, entryValue]) => {
+      normalized[key] = normalizeForHash(entryValue)
+    })
+    return normalized
+  }
+  return null
+}
+
 export function computeSourceHash(payload: Record<string, unknown>) {
-  const normalized = JSON.stringify(payload, Object.keys(payload).sort())
-  return createHash('sha256').update(normalized).digest('hex')
+  const normalized = normalizeForHash(payload)
+  const serialized = JSON.stringify(normalized)
+  return createHash('sha256').update(serialized).digest('hex')
+}
+
+export function assertBalancedSplits(splits: Array<{ amount: number }>) {
+  if (!splits || splits.length === 0) return
+
+  let totalCents = 0
+  splits.forEach((split) => {
+    if (!Number.isFinite(split.amount)) {
+      throw new Error('Split amount must be a finite number.')
+    }
+    const cents = Math.round(split.amount * 100)
+    if (cents === 0) {
+      throw new Error('Split amount cannot be zero.')
+    }
+    totalCents += cents
+  })
+
+  if (totalCents !== 0) {
+    throw new Error('Splits must balance to zero.')
+  }
 }
 
 export function isReviewApproved(reviewStatus?: ReviewStatus | null, reviewed?: boolean | null) {
