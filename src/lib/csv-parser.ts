@@ -1,6 +1,39 @@
 import Papa from 'papaparse';
 import { ParsedTransaction, CSVRow, TransactionStatus } from '@/types';
 
+function normalizeText(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function findHeaderIndex(
+  headers: string[],
+  {
+    exact = [],
+    includes = [],
+  }: {
+    exact?: string[];
+    includes?: string[];
+  }
+): number {
+  for (const candidate of exact) {
+    const index = headers.indexOf(candidate);
+    if (index !== -1) {
+      return index;
+    }
+  }
+
+  for (const candidate of includes) {
+    const index = headers.findIndex((header) => header.includes(candidate));
+    if (index !== -1) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 /**
  * Parse CSV file and extract transactions
  * Handles multiple bank formats including Relay
@@ -80,14 +113,16 @@ function parseRelayFormat(rows: CSVRow[]): ParsedTransaction[] {
   return rows.map(row => {
     const amount = parseAmount(row.Amount);
     const date = parseDate(row.Date);
-    const isTransfer = row['Account #'] && row['Account #'].trim() !== '';
+    const description = normalizeText(row.Description);
+    const reference = normalizeText(row.Reference);
 
     return {
       date,
-      payee: row.Payee || 'Unknown',
-      description: row.Description || row.Reference || '',
+      payee: normalizeText(row.Payee) || 'Unknown',
+      description: description || reference || undefined,
+      memo: undefined,
       amount,
-      reference: row.Reference || '',
+      reference: reference || undefined,
       status: (row.Status?.toUpperCase() as TransactionStatus) || 'SETTLED',
       source_system: 'relay',
       account_number: row['Account #'] || undefined,
@@ -104,13 +139,18 @@ function parseChaseFormat(rows: CSVRow[]): ParsedTransaction[] {
   return rows.map(row => {
     const amount = parseAmount(row.Amount);
     const date = parseDate(row['Posting Date'] || row['Transaction Date']);
+    const payee = normalizeText(row.Description);
+    const description = normalizeText(row.Details);
+    const memo = normalizeText(row.Memo);
+    const reference = normalizeText(row['Check or Slip #']);
 
     return {
       date,
-      payee: row.Description || 'Unknown',
-      description: row.Details || row.Memo || '',
+      payee: payee || 'Unknown',
+      description: description || undefined,
+      memo: memo || undefined,
       amount,
-      reference: row['Check or Slip #'] || '',
+      reference: reference || undefined,
       status: 'SETTLED' as TransactionStatus,
       source_system: 'other',
       balance: row.Balance ? parseFloat(row.Balance) : undefined,
@@ -126,13 +166,17 @@ function parseBofAFormat(rows: CSVRow[]): ParsedTransaction[] {
   return rows.map(row => {
     const date = parseDate(row['Posted Date']);
     const amount = parseAmount(row.Amount);
+    const payee = normalizeText(row.Payee) || normalizeText(row.Description);
+    const description = normalizeText(row.Address);
+    const reference = normalizeText(row['Reference Number']);
 
     return {
       date,
-      payee: row.Payee || row.Description || 'Unknown',
-      description: row.Address || '',
+      payee: payee || 'Unknown',
+      description: description || undefined,
+      memo: undefined,
       amount,
-      reference: row['Reference Number'] || '',
+      reference: reference || undefined,
       status: 'SETTLED' as TransactionStatus,
       source_system: 'other',
       balance: row['Running Balance'] ? parseFloat(row['Running Balance']) : undefined,
@@ -146,41 +190,60 @@ function parseBofAFormat(rows: CSVRow[]): ParsedTransaction[] {
  */
 function parseGenericFormat(rows: CSVRow[]): ParsedTransaction[] {
   const firstRow = rows[0];
-  const headers = Object.keys(firstRow).map(h => h.toLowerCase());
+  const headerKeys = Object.keys(firstRow);
+  const headers = headerKeys.map(h => h.toLowerCase());
 
   // Find date column
-  const dateCol = headers.find(h => 
-    h.includes('date') || h.includes('posted') || h.includes('transaction')
-  );
+  const dateIndex = findHeaderIndex(headers, {
+    includes: ['date', 'posted', 'transaction'],
+  });
 
   // Find amount column
-  const amountCol = headers.find(h => 
-    h.includes('amount') || h.includes('debit') || h.includes('credit')
-  );
+  const amountIndex = findHeaderIndex(headers, {
+    includes: ['amount', 'debit', 'credit'],
+  });
 
-  // Find description/payee column
-  const descCol = headers.find(h => 
-    h.includes('description') || h.includes('payee') || h.includes('merchant')
-  );
+  // Find description/payee/memo/reference columns
+  const payeeIndex = findHeaderIndex(headers, {
+    includes: ['payee', 'name', 'merchant'],
+  });
+  const descriptionIndex = findHeaderIndex(headers, {
+    includes: ['description', 'transaction description'],
+  });
+  const memoIndex = findHeaderIndex(headers, {
+    includes: ['memo', 'notes', 'details'],
+  });
+  const referenceIndex = findHeaderIndex(headers, {
+    exact: ['reference', 'ref', 'id'],
+    includes: ['reference', 'ref', 'check number', 'check #', 'check no'],
+  });
 
-  if (!dateCol || !amountCol) {
+  if (dateIndex === -1 || amountIndex === -1) {
     throw new Error('Unable to detect required columns (date, amount) in CSV');
   }
 
   return rows.map(row => {
-    const originalDateCol = Object.keys(firstRow)[headers.indexOf(dateCol)];
-    const originalAmountCol = Object.keys(firstRow)[headers.indexOf(amountCol!)];
-    const originalDescCol = descCol ? Object.keys(firstRow)[headers.indexOf(descCol)] : null;
+    const dateValue = normalizeText(row[headerKeys[dateIndex]]);
+    const amountValue = normalizeText(row[headerKeys[amountIndex]]);
+    const payeeValue =
+      (payeeIndex !== -1 ? normalizeText(row[headerKeys[payeeIndex]]) : null) ||
+      (descriptionIndex !== -1 ? normalizeText(row[headerKeys[descriptionIndex]]) : null);
+    const descriptionValue =
+      descriptionIndex !== -1 ? normalizeText(row[headerKeys[descriptionIndex]]) : null;
+    const memoValue = memoIndex !== -1 ? normalizeText(row[headerKeys[memoIndex]]) : null;
+    const referenceValue =
+      referenceIndex !== -1 ? normalizeText(row[headerKeys[referenceIndex]]) : null;
 
-    const date = parseDate(row[originalDateCol]);
-    const amount = parseAmount(row[originalAmountCol]);
+    const date = parseDate(dateValue ?? '');
+    const amount = parseAmount(amountValue ?? '');
 
     return {
       date,
-      payee: originalDescCol ? row[originalDescCol] : 'Unknown',
-      description: '',
+      payee: payeeValue || 'Unknown',
+      description: descriptionValue || undefined,
+      memo: memoValue || undefined,
       amount,
-      reference: '',
+      reference: referenceValue || undefined,
       status: 'SETTLED' as TransactionStatus,
       source_system: 'other',
       raw_data: row,

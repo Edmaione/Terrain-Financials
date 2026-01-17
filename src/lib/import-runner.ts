@@ -27,6 +27,7 @@ function hashImportRow(transaction: ParsedTransaction, rowNumber: number) {
     date: transaction.date,
     payee: transaction.payee?.trim().toLowerCase() ?? '',
     description: transaction.description?.trim() ?? '',
+    memo: transaction.memo?.trim() ?? '',
     amount: transaction.amount,
     reference: transaction.reference?.trim() ?? '',
     status: transaction.status ?? 'SETTLED',
@@ -172,6 +173,7 @@ export async function runCsvImport({
   fileText: string
 }) {
   const debugIngest = process.env.INGEST_DEBUG === 'true'
+  const shouldLogDescriptionStats = process.env.NODE_ENV !== 'production'
 
   try {
     const importRecord = await fetchImport(importId)
@@ -225,6 +227,8 @@ export async function runCsvImport({
     let insertedRows = 0
     let skippedRows = 0
     let errorRows = 0
+    let descriptionPopulated = 0
+    let descriptionMissing = 0
 
     for (let offset = 0; offset < parsedTransactions.length; offset += CHUNK_SIZE) {
       const currentImport = await fetchImport(importId)
@@ -250,6 +254,11 @@ export async function runCsvImport({
       })
 
       errorRows += errors.length
+      const chunkWithDescriptions = preparedTransactions.filter(
+        (item) => Boolean(item.transaction.description)
+      ).length
+      descriptionPopulated += chunkWithDescriptions
+      descriptionMissing += preparedTransactions.length - chunkWithDescriptions
 
       const sourceIds = preparedTransactions
         .map((item) => item.transaction.source_id)
@@ -316,6 +325,15 @@ export async function runCsvImport({
         error_rows: errorRows,
       })
       .eq('id', importId)
+
+    if (shouldLogDescriptionStats) {
+      console.info('[ingest] Description mapping summary', {
+        importId,
+        totalRows: parsedTransactions.length,
+        descriptionPopulated,
+        descriptionMissing,
+      })
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Import failed'
     await markImportFailed(importId, message)
