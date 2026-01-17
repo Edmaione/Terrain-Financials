@@ -221,12 +221,12 @@ export async function prepareCsvTransactions({
   rowHashForTransaction,
   debug,
 }: {
-  transactions: Array<ParsedTransaction & { rowNumber?: number }>
+  transactions: Array<ParsedTransaction & { rowNumber?: number; import_row_hash?: string | null }>
   accountId: string
   accounts: AccountLookup[]
   importId: string
   rowOffset: number
-  rowHashForTransaction: (transaction: ParsedTransaction, rowNumber: number) => string
+  rowHashForTransaction?: (transaction: ParsedTransaction, rowNumber: number) => string
   debug?: boolean
 }) {
   const preparedTransactions: PreparedTransaction[] = []
@@ -328,7 +328,18 @@ export async function prepareCsvTransactions({
         accounts,
       })
 
-      const rowHash = rowHashForTransaction(transaction, rowNumber)
+      const rowHash =
+        transaction.import_row_hash ??
+        rowHashForTransaction?.(transaction, rowNumber) ??
+        computeSourceHash({
+          accountId,
+          date: transaction.date,
+          payee: normalizedPayee,
+          description: description || '',
+          amount: transaction.amount,
+          reference: reference || '',
+          source,
+        })
 
       preparedTransactions.push({
         transaction: {

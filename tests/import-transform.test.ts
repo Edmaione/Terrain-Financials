@@ -3,7 +3,7 @@ import { transformImportRows } from '@/lib/import-transform'
 import { AmountStrategy, ImportFieldMapping } from '@/types'
 
 describe('transformImportRows', () => {
-  it('maps signed amounts and resolves description fallback', () => {
+  it('maps signed amounts and resolves description fallback', async () => {
     const rows = [
       {
         Date: '01/02/2024',
@@ -26,7 +26,7 @@ describe('transformImportRows', () => {
       status: null,
     }
 
-    const result = transformImportRows({
+    const result = await transformImportRows({
       rows,
       mapping,
       amountStrategy: 'signed' as AmountStrategy,
@@ -41,7 +41,7 @@ describe('transformImportRows', () => {
     })
   })
 
-  it('computes inflow/outflow amount strategy', () => {
+  it('computes inflow/outflow amount strategy', async () => {
     const rows = [
       {
         Date: '2024-03-10',
@@ -64,7 +64,7 @@ describe('transformImportRows', () => {
       status: null,
     }
 
-    const result = transformImportRows({
+    const result = await transformImportRows({
       rows,
       mapping,
       amountStrategy: 'inflow_outflow' as AmountStrategy,
@@ -74,7 +74,7 @@ describe('transformImportRows', () => {
     expect(result.transactions[0].amount).toBe(200)
   })
 
-  it('falls back description to memo, reference, then payee', () => {
+  it('falls back description to memo, reference, then payee', async () => {
     const rows = [
       {
         Date: '2024-04-01',
@@ -97,7 +97,7 @@ describe('transformImportRows', () => {
       status: null,
     }
 
-    const result = transformImportRows({
+    const result = await transformImportRows({
       rows,
       mapping,
       amountStrategy: 'signed' as AmountStrategy,
@@ -107,7 +107,7 @@ describe('transformImportRows', () => {
     expect(result.transactions[0].payee).toBe('Fallback Vendor')
   })
 
-  it('uses payee as description when only payee is provided', () => {
+  it('uses payee as description when only payee is provided', async () => {
     const rows = [
       {
         Date: '2024-05-01',
@@ -129,7 +129,7 @@ describe('transformImportRows', () => {
       status: null,
     }
 
-    const result = transformImportRows({
+    const result = await transformImportRows({
       rows,
       mapping,
       amountStrategy: 'signed' as AmountStrategy,
@@ -138,7 +138,7 @@ describe('transformImportRows', () => {
     expect(result.transactions[0].description).toBe('Corner Store')
   })
 
-  it('keeps provided description over memo/reference/payee', () => {
+  it('keeps provided description over memo/reference/payee', async () => {
     const rows = [
       {
         Date: '2024-06-01',
@@ -163,12 +163,79 @@ describe('transformImportRows', () => {
       status: null,
     }
 
-    const result = transformImportRows({
+    const result = await transformImportRows({
       rows,
       mapping,
       amountStrategy: 'signed' as AmountStrategy,
     })
 
     expect(result.transactions[0].description).toBe('Breakfast meeting')
+  })
+
+  it('defaults reviewed to false and parses dates', async () => {
+    const rows = [
+      {
+        Date: '07/15/2024',
+        Amount: '(1,234.50)',
+        Payee: 'Sample Vendor',
+      },
+    ]
+
+    const mapping: ImportFieldMapping = {
+      date: 'Date',
+      amount: 'Amount',
+      inflow: null,
+      outflow: null,
+      payee: 'Payee',
+      description: null,
+      memo: null,
+      reference: null,
+      category: null,
+      status: null,
+    }
+
+    const result = await transformImportRows({
+      rows,
+      mapping,
+      amountStrategy: 'signed' as AmountStrategy,
+    })
+
+    expect(result.errors).toHaveLength(0)
+    expect(result.transactions[0].date).toBe('2024-07-15')
+    expect(result.transactions[0].amount).toBe(-1234.5)
+    expect(result.transactions[0].reviewed).toBe(false)
+    expect(result.transactions[0].import_row_hash).toHaveLength(64)
+  })
+
+  it('applies mapping overrides to use the selected headers', async () => {
+    const rows = [
+      {
+        Posted: '2024-08-01',
+        Total: '18.25',
+        Merchant: 'Mapped Payee',
+      },
+    ]
+
+    const mapping: ImportFieldMapping = {
+      date: 'Posted',
+      amount: 'Total',
+      inflow: null,
+      outflow: null,
+      payee: 'Merchant',
+      description: null,
+      memo: null,
+      reference: null,
+      category: null,
+      status: null,
+    }
+
+    const result = await transformImportRows({
+      rows,
+      mapping,
+      amountStrategy: 'signed' as AmountStrategy,
+    })
+
+    expect(result.transactions[0].payee).toBe('Mapped Payee')
+    expect(result.transactions[0].amount).toBe(18.25)
   })
 })

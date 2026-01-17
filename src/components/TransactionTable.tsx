@@ -282,7 +282,12 @@ export default function TransactionTable({
                 transaction.category ||
                 transaction.subcategory ||
                 null
-              const categoryName = resolvedCategory?.name || 'Needs categorization'
+              const needsCategorizationLabel = 'Needs categorization'
+              const rawCategoryName = resolvedCategory?.name ?? null
+              const categoryName =
+                rawCategoryName && rawCategoryName.startsWith(needsCategorizationLabel)
+                  ? needsCategorizationLabel
+                  : rawCategoryName || needsCategorizationLabel
               const categorySection = resolvedCategory?.section || null
               const isCategoryPickerOpen = openCategoryFor === transaction.id
               return (
