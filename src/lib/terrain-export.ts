@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
-import { supabaseAdmin } from './supabase'
-import { isReviewApproved } from './ledger'
+import { supabaseAdmin } from '@/lib/supabase'
+import { isReviewApproved } from '@/lib/ledger'
 
 export type TerrainJournalLine = {
   JournalDate: string
@@ -45,6 +45,7 @@ export async function exportTerrainJournalLines(startDate: string, endDate: stri
     .gte('date', startDate)
     .lte('date', endDate)
     .order('date', { ascending: true })
+    .order('id', { ascending: true })
 
   if (error || !transactions) {
     throw new Error(error?.message ?? 'Failed to load transactions for Terrain export.')
@@ -104,7 +105,11 @@ export async function exportTerrainJournalLines(startDate: string, endDate: stri
     const approvedAt = transaction.approved_at || ''
 
     if (transaction.is_split && splitMap.has(transaction.id)) {
-      splitMap.get(transaction.id)?.forEach((split) => {
+      const splits = splitMap.get(transaction.id)?.sort((left, right) => {
+        return left.id.localeCompare(right.id)
+      })
+
+      splits?.forEach((split) => {
         const account = split.account_id ? accountMap.get(split.account_id) : undefined
         const category = split.category_id ? categoryMap.get(split.category_id) : undefined
         const accountCode = account?.terrain_account_code || category?.terrain_category_code || ''
@@ -160,7 +165,17 @@ export async function exportTerrainJournalLines(startDate: string, endDate: stri
     })
   })
 
-  const csv = Papa.unparse(rows, {
+  const sortedRows = rows.sort((left, right) => {
+    if (left.JournalDate !== right.JournalDate) {
+      return left.JournalDate.localeCompare(right.JournalDate)
+    }
+    if (left.JournalId !== right.JournalId) {
+      return left.JournalId.localeCompare(right.JournalId)
+    }
+    return left.LineId.localeCompare(right.LineId)
+  })
+
+  const csv = Papa.unparse(sortedRows, {
     columns: [
       'JournalDate',
       'JournalId',
@@ -178,5 +193,5 @@ export async function exportTerrainJournalLines(startDate: string, endDate: stri
     ],
   })
 
-  return { csv, rows, warnings }
+  return { csv, rows: sortedRows, warnings }
 }

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { categorizeTransaction, detectTransactionType } from '@/lib/categorization-engine'
 import { isLikelyTransfer } from '@/lib/csv-parser'
-import { computeSourceHash, normalizePayeeName } from '@/lib/ledger'
+import { assertBalancedSplits, computeSourceHash, normalizePayeeName } from '@/lib/ledger'
+import { planCsvImport } from '@/lib/import-idempotency'
 import { ParsedTransaction } from '@/types'
 
 type AccountLookup = {
@@ -16,6 +17,32 @@ type SplitCandidate = {
   category_id: string | null
   amount: number
   memo?: string | null
+}
+
+type PreparedTransaction = {
+  transaction: {
+    account_id: string
+    date: string
+    payee: string
+    payee_id: string | null
+    payee_original: string
+    payee_display: string
+    description: string | null
+    amount: number
+    reference: string | null
+    status: string
+    txn_status: 'posted'
+    is_transfer: boolean
+    ai_suggested_category: string | null
+    ai_confidence: number
+    review_status: 'needs_review'
+    reviewed: boolean
+    source: string
+    source_id: string | null
+    source_hash: string
+    raw_csv_data: Record<string, string>
+  }
+  splits: SplitCandidate[]
 }
 
 function parseOptionalNumber(value: unknown): number | null {
@@ -38,35 +65,6 @@ function extractRawAmount(raw: Record<string, string>, keys: string[]) {
   return null
 }
 
-async function ensurePayeeId(payeeName: string) {
-  const normalized = normalizePayeeName(payeeName)
-  const { data: existing } = await supabaseAdmin
-    .from('payees')
-    .select('id')
-    .eq('name', normalized)
-    .single()
-
-  if (existing?.id) {
-    return existing.id
-  }
-
-  const { data: created, error } = await supabaseAdmin
-    .from('payees')
-    .insert({
-      name: normalized,
-      display_name: payeeName,
-    })
-    .select('id')
-    .single()
-
-  if (error) {
-    console.warn('[ingest] Failed to create payee', error)
-    return null
-  }
-
-  return created?.id ?? null
-}
-
 function findAccountMatch(
   accounts: AccountLookup[],
   payee: string,
@@ -78,8 +76,7 @@ function findAccountMatch(
   )
 }
 
-async function createSplitsForTransaction({
-  transactionId,
+function buildSplitCandidates({
   transactionAmount,
   accountId,
   payee,
@@ -88,7 +85,6 @@ async function createSplitsForTransaction({
   rawData,
   accounts,
 }: {
-  transactionId: string
   transactionAmount: number
   accountId: string
   payee: string
@@ -183,43 +179,12 @@ async function createSplitsForTransaction({
   }
 
   if (splitCandidates.length === 0) {
-    return false
+    return []
   }
 
-  const total = splitCandidates.reduce((sum, split) => sum + split.amount, 0)
-  if (Math.abs(total) > 0.01) {
-    console.warn('[ingest] Split imbalance detected, skipping splits', {
-      transactionId,
-      total,
-      payee,
-      description,
-    })
-    return false
-  }
+  assertBalancedSplits(splitCandidates)
 
-  const { error } = await supabaseAdmin.from('transaction_splits').insert(
-    splitCandidates.map((split) => ({
-      transaction_id: transactionId,
-      account_id: split.account_id,
-      category_id: split.category_id,
-      amount: split.amount,
-      memo: split.memo ?? null,
-    }))
-  )
-
-  if (error) {
-    console.warn('[ingest] Failed to create splits', error)
-    return false
-  }
-
-  await supabaseAdmin
-    .from('transactions')
-    .update({
-      is_split: true,
-    })
-    .eq('id', transactionId)
-
-  return true
+  return splitCandidates
 }
 
 export async function POST(request: NextRequest) {
@@ -305,39 +270,9 @@ export async function POST(request: NextRequest) {
 
     const inferredSource = transactions.find((item) => item.source_system)?.source_system ?? 'manual'
 
-    const { data: importBatch, error: importBatchError } = await supabaseAdmin
-      .from('import_batches')
-      .insert({
-        source: inferredSource,
-        metadata: {
-          parsed_count: transactions.length,
-          account_id: resolvedAccountId,
-        },
-        created_by: 'csv_upload',
-      })
-      .select('id')
-      .single()
-
-    if (importBatchError) {
-      console.warn('[ingest] Failed to create import batch', importBatchError)
-    }
-
-    // Get existing transactions for deduplication
-    const dates = [...new Set(transactions.map(t => t.date))]
-    const { data: existingTransactions } = await supabaseAdmin
-      .from('transactions')
-      .select('id, date, payee, amount, source, source_id, source_hash')
-      .in('date', dates)
-      .eq('account_id', resolvedAccountId)
-    
-    const existing = existingTransactions || []
-    
-    // Process transactions
-    let importedCount = 0
-    let duplicateCount = 0
-    let errorCount = 0
+    const preparedTransactions: PreparedTransaction[] = []
     const errors: string[] = []
-    
+
     for (const transaction of transactions) {
       try {
         // Detect transfer
@@ -346,33 +281,34 @@ export async function POST(request: NextRequest) {
           transaction.description || '',
           transaction.account_number
         )
-        
+
         // Detect transaction type for smart categorization
         const typeInfo = detectTransactionType(
           transaction.payee,
           transaction.description,
           transaction.reference
         )
-        
+
         // Get AI categorization suggestion
         let categoryId: string | null = null
         let confidence = 0
-        
+
         // Special handling for known types
         if (typeInfo.isPayroll && typeInfo.payrollType) {
           // Get appropriate payroll category
-          const categoryName = typeInfo.payrollType === 'wages' 
-            ? 'LS Technician Wages'
-            : typeInfo.payrollType === 'taxes'
-            ? 'LS Technician Payroll taxes'
-            : 'Payroll Expenses & Fees'
-          
+          const categoryName =
+            typeInfo.payrollType === 'wages'
+              ? 'LS Technician Wages'
+              : typeInfo.payrollType === 'taxes'
+                ? 'LS Technician Payroll taxes'
+                : 'Payroll Expenses & Fees'
+
           const { data: category } = await supabaseAdmin
             .from('categories')
             .select('id')
             .eq('name', categoryName)
             .single()
-          
+
           if (category) {
             categoryId = category.id
             confidence = 0.98
@@ -383,7 +319,7 @@ export async function POST(request: NextRequest) {
             .select('id')
             .eq('name', 'Insurance - Liability & Auto')
             .single()
-          
+
           if (category) {
             categoryId = category.id
             confidence = 0.95
@@ -394,13 +330,13 @@ export async function POST(request: NextRequest) {
             .select('id')
             .eq('name', 'Utilities, Phone, Internet')
             .single()
-          
+
           if (category) {
             categoryId = category.id
             confidence = 0.95
           }
         }
-        
+
         // If no special type detected, use general categorization
         if (!categoryId) {
           const suggestion = await categorizeTransaction({
@@ -408,13 +344,12 @@ export async function POST(request: NextRequest) {
             description: transaction.description,
             amount: transaction.amount,
           })
-          
+
           categoryId = suggestion.category_id
           confidence = suggestion.confidence
         }
-        
+
         const normalizedPayee = normalizePayeeName(transaction.payee)
-        const payeeId = await ensurePayeeId(normalizedPayee)
         const source = transaction.source_system || 'manual'
         const sourceId = transaction.reference?.trim() || null
         const sourceHash = computeSourceHash({
@@ -427,39 +362,46 @@ export async function POST(request: NextRequest) {
           source,
         })
 
-        const existingBySourceId = sourceId
-          ? existing.find((item) => item.source === source && item.source_id === sourceId)
-          : null
-        const existingByHash = existing.find((item) => item.source_hash === sourceHash)
-        const existingMatch = existingBySourceId ?? existingByHash
-
-        const transactionPayload = {
-          account_id: resolvedAccountId,
-          date: transaction.date,
+        const splits = buildSplitCandidates({
+          transactionAmount: transaction.amount,
+          accountId: resolvedAccountId,
           payee: normalizedPayee,
-          payee_id: payeeId,
-          payee_original: transaction.payee,
-          payee_display: normalizedPayee,
-          description: transaction.description || null,
-          amount: transaction.amount,
-          reference: transaction.reference || null,
-          status: transaction.status || 'SETTLED',
-          txn_status: 'posted',
-          is_transfer: isTransfer,
-          ai_suggested_category: categoryId,
-          ai_confidence: confidence,
-          review_status: 'needs_review',
-          reviewed: false,
-          source,
-          source_id: sourceId,
-          source_hash: sourceHash,
-          import_batch_id: importBatch?.id ?? null,
-          raw_csv_data: transaction.raw_data,
+          description: transaction.description,
+          transferToAccountId: null,
+          rawData: transaction.raw_data,
+          accounts: activeAccounts,
+        })
+
+        const transactionPayload: PreparedTransaction = {
+          transaction: {
+            account_id: resolvedAccountId,
+            date: transaction.date,
+            payee: normalizedPayee,
+            payee_id: null,
+            payee_original: transaction.payee,
+            payee_display: normalizedPayee,
+            description: transaction.description || null,
+            amount: transaction.amount,
+            reference: transaction.reference || null,
+            status: transaction.status || 'SETTLED',
+            txn_status: 'posted',
+            is_transfer: isTransfer,
+            ai_suggested_category: categoryId,
+            ai_confidence: confidence,
+            review_status: 'needs_review',
+            reviewed: false,
+            source,
+            source_id: sourceId,
+            source_hash: sourceHash,
+            raw_csv_data: transaction.raw_data,
+          },
+          splits,
         }
 
-        // Insert transaction
+        preparedTransactions.push(transactionPayload)
+
         if (debugIngest) {
-          console.info('[ingest] Inserting transaction', {
+          console.info('[ingest] Prepared transaction', {
             accountId: resolvedAccountId,
             date: transaction.date,
             payee: transaction.payee,
@@ -468,80 +410,101 @@ export async function POST(request: NextRequest) {
             confidence,
           })
         }
-
-        if (existingMatch?.id) {
-          const { error: updateError } = await supabaseAdmin
-            .from('transactions')
-            .update({
-              ...transactionPayload,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingMatch.id)
-
-          if (updateError) {
-            throw updateError
-          }
-
-          duplicateCount++
-          continue
-        }
-
-        const { data: inserted, error: insertError } = await supabaseAdmin
-          .from('transactions')
-          .insert(transactionPayload)
-          .select('id')
-          .single()
-
-        if (insertError || !inserted) {
-          throw insertError
-        }
-
-        if (inserted?.id) {
-          await createSplitsForTransaction({
-            transactionId: inserted.id,
-            transactionAmount: transaction.amount,
-            accountId: resolvedAccountId,
-            payee: normalizedPayee,
-            description: transaction.description,
-            transferToAccountId: null,
-            rawData: transaction.raw_data,
-            accounts: activeAccounts,
-          })
-        }
-
-        if (debugIngest) {
-          console.info('[ingest] Inserted transaction', {
-            payee: transaction.payee,
-            date: transaction.date,
-            amount: transaction.amount,
-          })
-        }
-        
-        importedCount++
-        
       } catch (err) {
-        errorCount++
-        errors.push(`Error processing transaction ${transaction.payee}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        errors.push(
+          `Error processing transaction ${transaction.payee}: ${
+            err instanceof Error ? err.message : 'Unknown error'
+          }`
+        )
       }
     }
-    
+
+    const sourceIds = preparedTransactions
+      .map((item) => item.transaction.source_id)
+      .filter((value): value is string => Boolean(value))
+    const sourceHashes = preparedTransactions.map((item) => item.transaction.source_hash)
+
+    const existingRecords: Array<{
+      id: string
+      source: string | null
+      source_id: string | null
+      source_hash: string | null
+    }> = []
+
+    if (sourceIds.length > 0) {
+      const { data: existingBySourceId } = await supabaseAdmin
+        .from('transactions')
+        .select('id, source, source_id, source_hash')
+        .eq('account_id', resolvedAccountId)
+        .in('source_id', sourceIds)
+      existingRecords.push(...(existingBySourceId || []))
+    }
+
+    if (sourceHashes.length > 0) {
+      const { data: existingByHash } = await supabaseAdmin
+        .from('transactions')
+        .select('id, source, source_id, source_hash')
+        .eq('account_id', resolvedAccountId)
+        .in('source_hash', sourceHashes)
+      existingRecords.push(...(existingByHash || []))
+    }
+
+    const { inserts, updates } = planCsvImport(preparedTransactions, existingRecords)
+
+    if (inserts.length === 0 && updates.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        data: {
+          inserted: 0,
+          updated: 0,
+          skipped: errors.length,
+          errors,
+        },
+      })
+    }
+
+    const { data: ingestSummary, error: ingestError } = await supabaseAdmin.rpc(
+      'ingest_csv_transactions',
+      {
+        payload: {
+          source: inferredSource,
+          created_by: 'csv_upload',
+          metadata: {
+            parsed_count: transactions.length,
+            account_id: resolvedAccountId,
+          },
+          insert_transactions: inserts,
+          update_transactions: updates,
+        },
+      }
+    )
+
+    if (ingestError) {
+      console.error('[ingest] Transaction ingest failed', ingestError)
+      return NextResponse.json(
+        { ok: false, error: ingestError.message ?? 'Failed to ingest transactions' },
+        { status: 500 }
+      )
+    }
+
+    const skippedCount = errors.length + (ingestSummary?.skipped ?? 0)
+
     if (debugIngest) {
       console.info('[ingest] Upload summary', {
         parsedCount: transactions.length,
-        importedCount,
-        duplicateCount,
-        errorCount,
+        inserted: ingestSummary?.inserted ?? 0,
+        updated: ingestSummary?.updated ?? 0,
+        skipped: skippedCount,
       })
     }
 
     return NextResponse.json({
       ok: true,
       data: {
-        parsed_count: transactions.length,
-        imported_count: importedCount,
-        duplicate_count: duplicateCount,
-        error_count: errorCount,
-        errors: errors.length > 0 ? errors : undefined,
+        inserted: ingestSummary?.inserted ?? 0,
+        updated: ingestSummary?.updated ?? 0,
+        skipped: skippedCount,
+        errors,
       },
     })
     
