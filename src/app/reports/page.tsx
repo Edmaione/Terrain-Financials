@@ -118,7 +118,7 @@ export default async function ReportsPage({
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Card className="p-6">
+        <Card className="p-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
             <IconTrendingUp className="h-5 w-5" />
           </div>
@@ -127,7 +127,7 @@ export default async function ReportsPage({
             ${plReport.total_income.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
         </Card>
-        <Card className="p-6">
+        <Card className="p-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-700">
             <IconTrendingDown className="h-5 w-5" />
           </div>
@@ -136,7 +136,7 @@ export default async function ReportsPage({
             ${plReport.total_expenses.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
         </Card>
-        <Card className="p-6">
+        <Card className="p-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700">
             <IconBarChart className="h-5 w-5" />
           </div>
@@ -145,7 +145,7 @@ export default async function ReportsPage({
             ${plReport.gross_profit.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </p>
         </Card>
-        <Card className="p-6">
+        <Card className="p-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
             <IconWallet className="h-5 w-5" />
           </div>
@@ -160,9 +160,9 @@ export default async function ReportsPage({
         </Card>
       </div>
 
-      <Card className="p-6">
+      <Card className="p-5">
         <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold text-slate-900">Cash Flow</h2>
+          <h2 className="text-xl font-semibold text-slate-900">Cash Flow</h2>
           <p className="text-xs text-slate-500">
             {rangeLabel} · {new Date(startDate).toLocaleDateString()} to {new Date(endDate).toLocaleDateString()}
           </p>
@@ -178,10 +178,10 @@ export default async function ReportsPage({
         </div>
       </Card>
 
-      <Card className="p-6">
+      <Card className="p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Profit and Loss Statement</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Profit and Loss Statement</h2>
             <p className="text-xs text-slate-500">
               {new Date(startDate).toLocaleDateString()} to {new Date(endDate).toLocaleDateString()}
             </p>

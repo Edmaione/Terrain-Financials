@@ -55,7 +55,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div className="fixed right-6 top-6 z-50 flex w-full max-w-sm flex-col gap-3">
+      <div className="fixed bottom-6 right-6 z-40 flex w-full max-w-sm flex-col gap-3">
         {toasts.map((item) => {
           const Icon = iconMap[item.variant]
           return (
@@ -63,7 +63,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               key={item.id}
               role="status"
               className={cn(
-                'flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-lg',
+                'flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg',
                 variantStyles[item.variant]
               )}
             >

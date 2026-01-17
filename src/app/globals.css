@@ -16,11 +16,21 @@
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
-    @apply outline-none ring-2 ring-slate-400/50 ring-offset-2 ring-offset-slate-50;
+    @apply outline-none ring-2 ring-emerald-500/60 ring-offset-2 ring-offset-slate-50;
   }
 
   ::selection {
     @apply bg-slate-900 text-white;
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition-smooth hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  }
+
+  .nav-link-active {
+    @apply bg-emerald-50 text-emerald-700;
   }
 }
 

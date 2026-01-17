@@ -33,13 +33,13 @@ export default function SidebarNav({ onNavigate }: { onNavigate?: () => void }) 
   const pathname = usePathname()
 
   return (
-    <div className="flex h-full flex-col gap-6 px-4 py-5">
+    <div className="flex h-full flex-col gap-6 p-4">
       <Link
         href="/"
-        className="flex items-center gap-2.5 rounded-xl border border-slate-200/70 bg-white px-3 py-2.5 shadow-sm"
+        className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm"
         onClick={onNavigate}
       >
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-white">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white">
           <span className="text-base">🌿</span>
         </div>
         <div>
@@ -51,7 +51,7 @@ export default function SidebarNav({ onNavigate }: { onNavigate?: () => void }) 
       <nav className="flex flex-col gap-5">
         {sections.map((section) => (
           <div key={section.label}>
-            <p className="px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">
+            <p className="px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-400">
               {section.label}
             </p>
             <div className="mt-2 flex flex-col gap-0.5">
@@ -64,14 +64,9 @@ export default function SidebarNav({ onNavigate }: { onNavigate?: () => void }) 
                     key={item.href}
                     href={item.href}
                     onClick={onNavigate}
-                    className={cn(
-                      'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50',
-                      isActive
-                        ? 'bg-slate-900 text-white shadow-sm'
-                        : 'text-slate-700 hover:bg-slate-100'
-                    )}
+                    className={cn('nav-link', isActive && 'nav-link-active')}
                   >
-                    <Icon className={cn('h-[18px] w-[18px]', isActive ? 'text-white' : 'text-slate-500')} />
+                    <Icon className={cn('h-[18px] w-[18px]', isActive ? 'text-emerald-600' : 'text-slate-500')} />
                     {item.label}
                   </Link>
                 )
@@ -81,7 +76,7 @@ export default function SidebarNav({ onNavigate }: { onNavigate?: () => void }) 
         ))}
       </nav>
 
-      <div className="mt-auto rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
+      <div className="mt-auto rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
         <p className="font-semibold text-slate-700">Workspace</p>
         <p>Production environment</p>
       </div>

@@ -8,7 +8,7 @@ export default function Loading() {
         <Skeleton className="h-9 w-48" />
         <Skeleton className="h-4 w-72" />
       </div>
-      <Card className="space-y-4 p-6">
+      <Card className="space-y-4 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <Skeleton className="h-4 w-20" />

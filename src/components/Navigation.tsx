@@ -16,7 +16,7 @@ export default function Navigation() {
   ]
 
   return (
-    <nav className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur">
+    <nav className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/85 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-8">
           <Link href="/" className="flex items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white">

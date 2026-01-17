@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { useToast } from '@/components/ui/Toast'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 
 const TYPE_OPTIONS = [
   { value: 'income', label: 'Income' },
@@ -30,16 +32,33 @@ export default function CategoriesManager() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
   const [formState, setFormState] = useState({ ...emptyForm })
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [searchValue, setSearchValue] = useState('')
+  const { toast } = useToast()
 
   const parentOptions = useMemo(
     () => categories.filter((category) => !category.parent_id),
     [categories]
   )
+
+  const filteredCategories = useMemo(() => {
+    if (!searchValue.trim()) {
+      return categories
+    }
+    const query = searchValue.trim().toLowerCase()
+    return categories.filter((category) => {
+      return (
+        category.name.toLowerCase().includes(query) ||
+        category.section?.toLowerCase().includes(query) ||
+        category.type.toLowerCase().includes(query)
+      )
+    })
+  }, [categories, searchValue])
 
   const fetchCategories = async () => {
     setLoading(true)
@@ -48,7 +67,13 @@ export default function CategoriesManager() {
       const data = await apiRequest<Category[]>('/api/categories')
       setCategories(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load categories.')
+      const message = err instanceof Error ? err.message : 'Failed to load categories.'
+      setError(message)
+      toast({
+        variant: 'error',
+        title: 'Categories unavailable',
+        description: message,
+      })
     } finally {
       setLoading(false)
     }
@@ -61,6 +86,7 @@ export default function CategoriesManager() {
   const resetForm = () => {
     setEditingId(null)
     setFormState({ ...emptyForm })
+    setFormError(null)
   }
 
   const openCreateModal = () => {
@@ -77,17 +103,18 @@ export default function CategoriesManager() {
       parent_id: category.parent_id || '',
       sort_order: category.sort_order || 0,
     })
+    setFormError(null)
     setIsModalOpen(true)
   }
 
   const closeModal = () => {
     setIsModalOpen(false)
     setError(null)
+    setFormError(null)
   }
 
   const handleSubmit = async () => {
-    setError(null)
-    setSuccess(null)
+    setFormError(null)
 
     try {
       const payload = {
@@ -108,47 +135,70 @@ export default function CategoriesManager() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        setSuccess('Category updated.')
+        toast({
+          variant: 'success',
+          title: 'Category updated',
+          description: 'Your changes have been saved.',
+        })
       } else {
         await apiRequest('/api/categories', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        setSuccess('Category created.')
+        toast({
+          variant: 'success',
+          title: 'Category created',
+          description: 'The new category is ready to use.',
+        })
       }
 
       closeModal()
       resetForm()
       await fetchCategories()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save category.')
+      const message = err instanceof Error ? err.message : 'Failed to save category.'
+      setFormError(message)
+      toast({
+        variant: 'error',
+        title: 'Save failed',
+        description: message,
+      })
     }
   }
 
   const handleDelete = async () => {
     if (!deleteTarget) return
-    setError(null)
-    setSuccess(null)
+    setDeleteError(null)
 
     try {
       await apiRequest(`/api/categories/${deleteTarget.id}`, {
         method: 'DELETE',
       })
-      setSuccess('Category deleted.')
+      toast({
+        variant: 'success',
+        title: 'Category deleted',
+        description: 'The category has been removed.',
+      })
       setDeleteTarget(null)
       await fetchCategories()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete category.')
+      const message = err instanceof Error ? err.message : 'Failed to delete category.'
+      setDeleteError(message)
+      toast({
+        variant: 'error',
+        title: 'Delete failed',
+        description: message,
+      })
     }
   }
 
   return (
     <div className="space-y-6">
-      <Card className="p-6">
+      <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Category Manager</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Category Manager</h2>
             <p className="text-sm text-slate-500">
               Create, organize, and retire categories used across transactions.
             </p>
@@ -164,59 +214,71 @@ export default function CategoriesManager() {
             </Button>
           </div>
         </div>
-        {success && <p className="mt-4 text-sm font-medium text-emerald-600">{success}</p>}
       </Card>
 
       {error && <AlertBanner variant="error" title="Action failed" message={error} />}
 
-      <Card className="p-6">
-        <div className="flex items-center justify-between">
+      <Card className="p-0">
+        <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">All categories</h2>
-            <p className="text-sm text-slate-500">{categories.length} total</p>
+            <h2 className="text-xl font-semibold text-slate-900">All categories</h2>
+            <p className="text-xs text-slate-500">{filteredCategories.length} total</p>
+          </div>
+          <div className="w-full sm:w-64">
+            <Input
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search categories"
+              aria-label="Search categories"
+            />
           </div>
         </div>
 
         {loading ? (
-          <div className="mt-6 text-sm text-slate-500">Loading categories...</div>
+          <div className="px-5 py-6 text-sm text-slate-500">Loading categories...</div>
         ) : categories.length === 0 ? (
-          <div className="mt-6 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+          <div className="px-5 py-6 text-sm text-slate-500">
             No categories yet. Create your first category to start organizing transactions.
           </div>
+        ) : filteredCategories.length === 0 ? (
+          <div className="px-5 py-6 text-sm text-slate-500">
+            No categories match your search. Try a different keyword.
+          </div>
         ) : (
-          <div className="mt-6 overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-left">Name</th>
-                  <th className="px-4 py-3 text-left">Section</th>
-                  <th className="px-4 py-3 text-left">Type</th>
-                  <th className="px-4 py-3 text-left">Parent</th>
-                  <th className="px-4 py-3 text-right">Sort</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                {categories.map((category) => (
-                  <tr key={category.id} className="border-b border-slate-100 text-sm text-slate-700 hover:bg-slate-50">
-                    <td className="px-4 py-3 text-sm text-slate-900">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Name</TableHead>
+                  <TableHead>Section</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Parent</TableHead>
+                  <TableHead className="text-right">Sort</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredCategories.map((category) => (
+                  <TableRow key={category.id}>
+                    <TableCell className="text-slate-900">
                       <div className="font-medium">{category.name}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">
+                    </TableCell>
+                    <TableCell className="text-slate-500">
                       {category.section || 'N/A'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">
+                    </TableCell>
+                    <TableCell className="text-slate-500">
                       {TYPE_OPTIONS.find((option) => option.value === category.type)?.label ?? category.type}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">
+                    </TableCell>
+                    <TableCell className="text-slate-500">
                       {category.parent_id
                         ? parentOptions.find((parent) => parent.id === category.parent_id)?.name || 'N/A'
                         : 'N/A'}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm text-slate-500">
+                    </TableCell>
+                    <TableCell className="text-right text-slate-500">
                       {category.sort_order ?? 0}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="secondary"
@@ -233,17 +295,17 @@ export default function CategoriesManager() {
                           Delete
                         </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </Card>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4">
           <div
             role="dialog"
             aria-modal="true"
@@ -334,6 +396,8 @@ export default function CategoriesManager() {
               </div>
             </div>
 
+            {formError && <p className="mt-4 text-sm text-rose-600">{formError}</p>}
+
             <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={closeModal}>
                 Cancel
@@ -347,7 +411,7 @@ export default function CategoriesManager() {
       )}
 
       {deleteTarget && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4">
           <div
             role="dialog"
             aria-modal="true"
@@ -355,8 +419,9 @@ export default function CategoriesManager() {
           >
             <h3 className="text-lg font-semibold text-slate-900">Delete category</h3>
             <p className="mt-2 text-sm text-slate-500">
-              Deleting <span className="font-semibold text-slate-700">{deleteTarget.name}</span> will remove it from future selections. Existing transactions keep their assigned category.
+              Deleting <span className="font-semibold text-slate-700">{deleteTarget.name}</span> will remove it from future selections. Categories assigned to transactions must be reassigned before deletion.
             </p>
+            {deleteError && <p className="mt-3 text-sm text-rose-600">{deleteError}</p>}
             <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
                 Cancel

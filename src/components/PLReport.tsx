@@ -1,4 +1,5 @@
 import { PLReport as PLReportType } from '@/types'
+import { Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui/Table'
 
 export default function PLReport({ report }: { report: PLReportType }) {
   const formatMoney = (amount: number) => {
@@ -10,124 +11,124 @@ export default function PLReport({ report }: { report: PLReportType }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <tbody className="divide-y divide-slate-200">
-          <tr className="bg-slate-50">
-            <td colSpan={2} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <Table>
+        <TableBody className="divide-y divide-slate-200">
+          <TableRow className="bg-slate-50 hover:bg-slate-50">
+            <TableHead colSpan={2} className="text-slate-600">
               Income
-            </td>
-          </tr>
+            </TableHead>
+          </TableRow>
           {report.lines
             .filter((line) => line.section === 'Income')
             .map((line) => (
-              <tr key={line.category_id}>
-                <td className="px-4 py-2 text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
+              <TableRow key={line.category_id}>
+                <TableCell className="text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
                   {line.category_name}
-                </td>
-                <td className="px-4 py-2 text-right font-medium text-slate-900">
+                </TableCell>
+                <TableCell className="text-right font-medium text-slate-900">
                   ${formatMoney(line.amount)}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          <tr className="bg-slate-100 font-semibold">
-            <td className="px-4 py-2 text-slate-900">Total Income</td>
-            <td className="px-4 py-2 text-right text-slate-900">
+          <TableRow className="bg-slate-100 font-semibold hover:bg-slate-100">
+            <TableCell className="text-slate-900">Total Income</TableCell>
+            <TableCell className="text-right text-slate-900">
               ${formatMoney(report.total_income)}
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
 
-          <tr className="bg-slate-50">
-            <td colSpan={2} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <TableRow className="bg-slate-50 hover:bg-slate-50">
+            <TableHead colSpan={2} className="text-slate-600">
               Cost of Goods Sold
-            </td>
-          </tr>
+            </TableHead>
+          </TableRow>
           {report.lines
             .filter((line) => line.section === 'Cost of Goods Sold')
             .map((line) => (
-              <tr key={line.category_id} className={line.is_parent ? 'font-medium' : ''}>
-                <td className="px-4 py-2 text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
+              <TableRow key={line.category_id} className={line.is_parent ? 'font-medium' : ''}>
+                <TableCell className="text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
                   {line.category_name}
-                </td>
-                <td className="px-4 py-2 text-right text-slate-900">
+                </TableCell>
+                <TableCell className="text-right text-slate-900">
                   ${formatMoney(line.amount)}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          <tr className="bg-slate-100 font-semibold">
-            <td className="px-4 py-2 text-slate-900">Total Cost of Goods Sold</td>
-            <td className="px-4 py-2 text-right text-slate-900">
+          <TableRow className="bg-slate-100 font-semibold hover:bg-slate-100">
+            <TableCell className="text-slate-900">Total Cost of Goods Sold</TableCell>
+            <TableCell className="text-right text-slate-900">
               ${formatMoney(report.total_cogs)}
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
 
-          <tr className="bg-slate-900 text-white font-semibold">
-            <td className="px-4 py-3">Gross Profit</td>
-            <td className="px-4 py-3 text-right">${formatMoney(report.gross_profit)}</td>
-          </tr>
+          <TableRow className="bg-slate-900 text-white font-semibold hover:bg-slate-900">
+            <TableCell className="text-white">Gross Profit</TableCell>
+            <TableCell className="text-right text-white">${formatMoney(report.gross_profit)}</TableCell>
+          </TableRow>
 
-          <tr className="bg-slate-50">
-            <td colSpan={2} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <TableRow className="bg-slate-50 hover:bg-slate-50">
+            <TableHead colSpan={2} className="text-slate-600">
               Expenses
-            </td>
-          </tr>
+            </TableHead>
+          </TableRow>
           {report.lines
             .filter((line) => line.section === 'Expenses')
             .map((line) => (
-              <tr key={line.category_id} className={line.is_parent ? 'font-medium' : ''}>
-                <td className="px-4 py-2 text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
+              <TableRow key={line.category_id} className={line.is_parent ? 'font-medium' : ''}>
+                <TableCell className="text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
                   {line.category_name}
-                </td>
-                <td className="px-4 py-2 text-right text-slate-900">
+                </TableCell>
+                <TableCell className="text-right text-slate-900">
                   ${formatMoney(line.amount)}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          <tr className="bg-slate-100 font-semibold">
-            <td className="px-4 py-2 text-slate-900">Total Expenses</td>
-            <td className="px-4 py-2 text-right text-slate-900">
+          <TableRow className="bg-slate-100 font-semibold hover:bg-slate-100">
+            <TableCell className="text-slate-900">Total Expenses</TableCell>
+            <TableCell className="text-right text-slate-900">
               ${formatMoney(report.total_expenses)}
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
 
-          <tr className="bg-slate-900 text-white font-semibold">
-            <td className="px-4 py-3">Net Operating Income</td>
-            <td className="px-4 py-3 text-right">${formatMoney(report.net_operating_income)}</td>
-          </tr>
+          <TableRow className="bg-slate-900 text-white font-semibold hover:bg-slate-900">
+            <TableCell className="text-white">Net Operating Income</TableCell>
+            <TableCell className="text-right text-white">${formatMoney(report.net_operating_income)}</TableCell>
+          </TableRow>
 
           {report.other_income > 0 && (
             <>
-              <tr className="bg-slate-50">
-                <td colSpan={2} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <TableRow className="bg-slate-50 hover:bg-slate-50">
+                <TableHead colSpan={2} className="text-slate-600">
                   Other Income
-                </td>
-              </tr>
+                </TableHead>
+              </TableRow>
               {report.lines
                 .filter((line) => line.section === 'Other Income')
                 .map((line) => (
-                  <tr key={line.category_id}>
-                    <td className="px-4 py-2 text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
+                  <TableRow key={line.category_id}>
+                    <TableCell className="text-slate-900" style={{ paddingLeft: `${line.indent_level * 1}rem` }}>
                       {line.category_name}
-                    </td>
-                    <td className="px-4 py-2 text-right text-slate-900">
+                    </TableCell>
+                    <TableCell className="text-right text-slate-900">
                       ${formatMoney(line.amount)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
             </>
           )}
 
-          <tr className="border-t border-slate-200 bg-emerald-50 font-semibold">
-            <td className="px-4 py-4 text-slate-900">Net Income</td>
-            <td
-              className={`px-4 py-4 text-right ${
+          <TableRow className="border-t border-slate-200 bg-emerald-50 font-semibold hover:bg-emerald-50">
+            <TableCell className="text-slate-900">Net Income</TableCell>
+            <TableCell
+              className={`text-right ${
                 report.net_income >= 0 ? 'text-emerald-700' : 'text-rose-700'
               }`}
             >
               ${formatMoney(report.net_income)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
     </div>
   )
 }
