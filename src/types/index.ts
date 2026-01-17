@@ -80,6 +80,7 @@ export interface Transaction {
   date: string;
   payee: string;
   description?: string;
+  memo?: string;
   amount: number;
   category_id?: string;
   subcategory_id?: string;
@@ -194,6 +195,7 @@ export interface ParsedTransaction {
   date: string;
   payee: string;
   description?: string;
+  memo?: string;
   amount: number;
   reference?: string;
   status?: TransactionStatus;

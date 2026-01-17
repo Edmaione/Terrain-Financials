@@ -26,6 +26,7 @@ export type PreparedTransaction = {
     payee_original: string
     payee_display: string
     description: string | null
+    memo: string | null
     amount: number
     reference: string | null
     status: string
@@ -56,6 +57,28 @@ function parseOptionalNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null
   }
   return null
+}
+
+function normalizeOptionalText(value?: string | null): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+export function resolveTransactionFields(transaction: ParsedTransaction) {
+  const memo = normalizeOptionalText(transaction.memo)
+  const reference = normalizeOptionalText(transaction.reference)
+  const description =
+    normalizeOptionalText(transaction.description) ??
+    memo ??
+    reference ??
+    normalizeOptionalText(transaction.payee)
+
+  return {
+    description,
+    memo,
+    reference,
+  }
 }
 
 function extractRawAmount(raw: Record<string, string>, keys: string[]) {
@@ -213,16 +236,17 @@ export async function prepareCsvTransactions({
     const rowNumber = rowOffset + index + 1
 
     try {
+      const { description, memo, reference } = resolveTransactionFields(transaction)
       const isTransfer = isLikelyTransfer(
         transaction.payee,
-        transaction.description || '',
+        description || '',
         transaction.account_number
       )
 
       const typeInfo = detectTransactionType(
         transaction.payee,
-        transaction.description,
-        transaction.reference
+        description || '',
+        reference || ''
       )
 
       let categoryId: string | null = null
@@ -273,7 +297,7 @@ export async function prepareCsvTransactions({
       if (!categoryId) {
         const suggestion = await categorizeTransaction({
           payee: transaction.payee,
-          description: transaction.description,
+          description,
           amount: transaction.amount,
         })
 
@@ -283,14 +307,14 @@ export async function prepareCsvTransactions({
 
       const normalizedPayee = normalizePayeeName(transaction.payee)
       const source = transaction.source_system || 'manual'
-      const sourceId = transaction.reference?.trim() || null
+      const sourceId = reference || null
       const sourceHash = computeSourceHash({
         accountId,
         date: transaction.date,
         payee: normalizedPayee,
-        description: transaction.description || '',
+        description: description || '',
         amount: transaction.amount,
-        reference: transaction.reference || '',
+        reference: reference || '',
         source,
       })
 
@@ -298,7 +322,7 @@ export async function prepareCsvTransactions({
         transactionAmount: transaction.amount,
         accountId,
         payee: normalizedPayee,
-        description: transaction.description,
+        description,
         transferToAccountId: null,
         rawData: transaction.raw_data,
         accounts,
@@ -314,9 +338,10 @@ export async function prepareCsvTransactions({
           payee_id: null,
           payee_original: transaction.payee,
           payee_display: normalizedPayee,
-          description: transaction.description || null,
+          description: description || null,
+          memo: memo || null,
           amount: transaction.amount,
-          reference: transaction.reference || null,
+          reference: reference || null,
           status: transaction.status || 'SETTLED',
           txn_status: 'posted',
           is_transfer: isTransfer,
