@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './supabase';
+import { isReviewApproved } from './ledger';
 import { PLReport, PLReportLine, CashFlowData, WeeklySummary } from '@/types';
 
 /**
@@ -14,13 +15,13 @@ export async function generatePLReport(
     .from('transactions')
     .select(`
       *,
+      primary_category:categories!primary_category_id(*),
       category:categories!category_id(*),
       subcategory:categories!subcategory_id(*)
     `)
     .gte('date', startDate)
     .lte('date', endDate)
-    .eq('reviewed', true)
-    .not('category_id', 'is', null);
+    .or('review_status.eq.approved,reviewed.eq.true');
 
   if (accountId) {
     transactionsQuery = transactionsQuery.eq('account_id', accountId);
@@ -68,14 +69,45 @@ export async function generatePLReport(
     };
   }
 
+  const approvedTransactions = transactions.filter((transaction) =>
+    isReviewApproved(transaction.review_status, transaction.reviewed)
+  );
+  const splitTransactionIds = approvedTransactions
+    .filter((transaction) => transaction.is_split)
+    .map((transaction) => transaction.id);
+  const splitMap = new Map<string, Array<{ amount: number; category_id?: string | null }>>();
+
+  if (splitTransactionIds.length > 0) {
+    const { data: splits } = await supabaseAdmin
+      .from('transaction_splits')
+      .select('transaction_id, amount, category_id')
+      .in('transaction_id', splitTransactionIds);
+
+    (splits || []).forEach((split) => {
+      const existing = splitMap.get(split.transaction_id) || [];
+      existing.push(split);
+      splitMap.set(split.transaction_id, existing);
+    });
+  }
+
   // Calculate totals by category
   const categoryTotals = new Map<string, number>();
-  
-  transactions.forEach(t => {
-    const categoryId = t.subcategory_id || t.category_id;
+
+  approvedTransactions.forEach((transaction) => {
+    if (transaction.is_split && splitMap.has(transaction.id)) {
+      splitMap.get(transaction.id)?.forEach((split) => {
+        if (!split.category_id) return;
+        const current = categoryTotals.get(split.category_id) || 0;
+        categoryTotals.set(split.category_id, current + Math.abs(split.amount));
+      });
+      return;
+    }
+
+    const categoryId =
+      transaction.primary_category_id || transaction.subcategory_id || transaction.category_id;
     if (categoryId) {
       const current = categoryTotals.get(categoryId) || 0;
-      categoryTotals.set(categoryId, current + Math.abs(t.amount));
+      categoryTotals.set(categoryId, current + Math.abs(transaction.amount));
     }
   });
 
@@ -311,20 +343,67 @@ export async function generateWeeklySummary(
     }
   }
 
+  const splitIds = transactions.filter((t) => t.is_split).map((t) => t.id);
+  const splitLookup = new Map<
+    string,
+    Array<{
+      amount: number
+      category?: { name?: string | null } | Array<{ name?: string | null }> | null
+    }>
+  >();
+
+  if (splitIds.length > 0) {
+    const { data: splits } = await supabaseAdmin
+      .from('transaction_splits')
+      .select('transaction_id, amount, category:categories!category_id(name)')
+      .in('transaction_id', splitIds);
+
+    (splits || []).forEach((split) => {
+      const existing = splitLookup.get(split.transaction_id) || [];
+      existing.push(split);
+      splitLookup.set(split.transaction_id, existing);
+    });
+  }
+
   let totalIncome = 0;
   let totalExpenses = 0;
   const expensesByPayee = new Map<string, { amount: number; category: string }>();
 
-  transactions.forEach(t => {
-    if (t.amount > 0) {
-      totalIncome += t.amount;
+  transactions.forEach((transaction) => {
+    const splits = splitLookup.get(transaction.id);
+    if (transaction.is_split && splits?.length) {
+      splits.forEach((split) => {
+        if (split.amount > 0) {
+          totalIncome += split.amount;
+        } else if (split.amount < 0) {
+          const absAmount = Math.abs(split.amount);
+          totalExpenses += absAmount;
+          const categoryName = Array.isArray(split.category)
+            ? split.category[0]?.name || 'Uncategorized'
+            : split.category?.name || 'Uncategorized';
+          const current = expensesByPayee.get(transaction.payee) || {
+            amount: 0,
+            category: categoryName,
+          };
+          current.amount += absAmount;
+          expensesByPayee.set(transaction.payee, current);
+        }
+      });
+      return;
+    }
+
+    if (transaction.amount > 0) {
+      totalIncome += transaction.amount;
     } else {
-      const absAmount = Math.abs(t.amount);
+      const absAmount = Math.abs(transaction.amount);
       totalExpenses += absAmount;
-      
-      const current = expensesByPayee.get(t.payee) || { amount: 0, category: t.category?.name || 'Uncategorized' };
+
+      const current = expensesByPayee.get(transaction.payee) || {
+        amount: 0,
+        category: transaction.category?.name || 'Uncategorized',
+      };
       current.amount += absAmount;
-      expensesByPayee.set(t.payee, current);
+      expensesByPayee.set(transaction.payee, current);
     }
   });
 
@@ -337,7 +416,9 @@ export async function generateWeeklySummary(
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 5);
 
-  const unreviewed = transactions.filter(t => !t.reviewed).length;
+  const unreviewed = transactions.filter(
+    (transaction) => !isReviewApproved(transaction.review_status, transaction.reviewed)
+  ).length;
 
   return {
     week_start: weekStart,

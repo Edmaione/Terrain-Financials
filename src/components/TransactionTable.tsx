@@ -270,6 +270,10 @@ export default function TransactionTable({
           </TableHeader>
           <TableBody>
             {transactions.map((transaction) => {
+              const isReviewed =
+                transaction.review_status
+                  ? transaction.review_status === 'approved'
+                  : Boolean(transaction.reviewed)
               const isPositive = transaction.amount >= 0
               const accountName = transaction.account?.name || 'Unassigned'
               const transferName = transaction.transfer_to_account?.name
@@ -280,7 +284,7 @@ export default function TransactionTable({
                 <TableRow
                   key={transaction.id}
                   className={`${
-                    !transaction.reviewed ? 'bg-amber-50/40' : ''
+                    !isReviewed ? 'bg-amber-50/40' : ''
                   } focus-within:bg-slate-50`}
                 >
                   <TableCell className="align-top">
@@ -295,7 +299,9 @@ export default function TransactionTable({
                     {transaction.date ? dateFormatter.format(new Date(transaction.date)) : '--'}
                   </TableCell>
                   <TableCell className="text-slate-900">
-                    <div className="font-medium">{transaction.payee || 'Unknown payee'}</div>
+                    <div className="font-medium">
+                      {transaction.payee_display || transaction.payee || 'Unknown payee'}
+                    </div>
                     <div className="text-xs text-slate-500">
                       {transaction.description || 'No description'}
                     </div>
@@ -309,13 +315,17 @@ export default function TransactionTable({
                     )}
                   </TableCell>
                   <TableCell>
-                    {transaction.reviewed ? (
+                    {isReviewed ? (
                       <div>
                         <div className="font-medium text-slate-900">
-                          {transaction.category?.name || 'Uncategorized'}
+                          {transaction.primary_category?.name ||
+                            transaction.category?.name ||
+                            'Uncategorized'}
                         </div>
-                        {transaction.category?.section && (
-                          <div className="text-xs text-slate-500">{transaction.category.section}</div>
+                        {(transaction.primary_category?.section || transaction.category?.section) && (
+                          <div className="text-xs text-slate-500">
+                            {transaction.primary_category?.section || transaction.category?.section}
+                          </div>
                         )}
                       </div>
                     ) : (
@@ -358,7 +368,7 @@ export default function TransactionTable({
                   <TableCell className="whitespace-nowrap text-center">
                     <div className="flex flex-col items-center gap-2">
                       {transaction.is_transfer && <Badge variant="info">Transfer</Badge>}
-                      {transaction.reviewed ? (
+                      {isReviewed ? (
                         <Badge variant="success">Reviewed</Badge>
                       ) : (
                         <Badge variant="warning">Pending</Badge>
@@ -366,7 +376,7 @@ export default function TransactionTable({
                     </div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right font-medium">
-                    {!transaction.reviewed && (
+                    {!isReviewed && (
                       <div className="flex flex-col items-end gap-2">
                         {isCategoryPickerOpen ? (
                           <div className="flex flex-col items-end gap-2">
@@ -450,7 +460,7 @@ export default function TransactionTable({
                         </button>
                       </div>
                     )}
-                    {transaction.reviewed && (
+                    {isReviewed && (
                       <div className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
                         <IconCheck className="h-3.5 w-3.5" />
                         Approved

@@ -1,8 +1,226 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { categorizeTransaction, detectTransactionType } from '@/lib/categorization-engine'
-import { isDuplicateTransaction, isLikelyTransfer } from '@/lib/csv-parser'
+import { isLikelyTransfer } from '@/lib/csv-parser'
+import { computeSourceHash, normalizePayeeName } from '@/lib/ledger'
 import { ParsedTransaction } from '@/types'
+
+type AccountLookup = {
+  id: string
+  name: string
+  type: string
+}
+
+type SplitCandidate = {
+  account_id: string | null
+  category_id: string | null
+  amount: number
+  memo?: string | null
+}
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/[$,()\s]/g, '')
+    const parsed = Number.parseFloat(cleaned)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function extractRawAmount(raw: Record<string, string>, keys: string[]) {
+  for (const key of keys) {
+    if (raw[key] !== undefined) {
+      return parseOptionalNumber(raw[key])
+    }
+  }
+  return null
+}
+
+async function ensurePayeeId(payeeName: string) {
+  const normalized = normalizePayeeName(payeeName)
+  const { data: existing } = await supabaseAdmin
+    .from('payees')
+    .select('id')
+    .eq('name', normalized)
+    .single()
+
+  if (existing?.id) {
+    return existing.id
+  }
+
+  const { data: created, error } = await supabaseAdmin
+    .from('payees')
+    .insert({
+      name: normalized,
+      display_name: payeeName,
+    })
+    .select('id')
+    .single()
+
+  if (error) {
+    console.warn('[ingest] Failed to create payee', error)
+    return null
+  }
+
+  return created?.id ?? null
+}
+
+function findAccountMatch(
+  accounts: AccountLookup[],
+  payee: string,
+  types: string[]
+) {
+  const needle = payee.toLowerCase()
+  return accounts.find(
+    (account) => types.includes(account.type) && needle.includes(account.name.toLowerCase())
+  )
+}
+
+async function createSplitsForTransaction({
+  transactionId,
+  transactionAmount,
+  accountId,
+  payee,
+  description,
+  transferToAccountId,
+  rawData,
+  accounts,
+}: {
+  transactionId: string
+  transactionAmount: number
+  accountId: string
+  payee: string
+  description?: string | null
+  transferToAccountId?: string | null
+  rawData: Record<string, string>
+  accounts: AccountLookup[]
+}) {
+  const splitCandidates: SplitCandidate[] = []
+
+  if (transferToAccountId) {
+    splitCandidates.push(
+      {
+        account_id: accountId,
+        category_id: null,
+        amount: transactionAmount,
+        memo: 'Transfer out',
+      },
+      {
+        account_id: transferToAccountId,
+        category_id: null,
+        amount: -transactionAmount,
+        memo: 'Transfer in',
+      }
+    )
+  } else {
+    const matchedCredit = findAccountMatch(accounts, payee, ['credit_card'])
+    const matchedLoan = findAccountMatch(accounts, payee, ['loan'])
+
+    if (matchedCredit) {
+      splitCandidates.push(
+        {
+          account_id: accountId,
+          category_id: null,
+          amount: transactionAmount,
+          memo: 'Credit card payment',
+        },
+        {
+          account_id: matchedCredit.id,
+          category_id: null,
+          amount: -transactionAmount,
+          memo: 'Credit card liability',
+        }
+      )
+    } else if (matchedLoan) {
+      const principal = extractRawAmount(rawData, ['Principal', 'principal'])
+      const interest = extractRawAmount(rawData, ['Interest', 'interest'])
+      const total = Math.abs(transactionAmount)
+      const hasBreakdown =
+        principal !== null &&
+        interest !== null &&
+        Math.abs(principal + interest - total) < 0.01
+
+      if (hasBreakdown) {
+        splitCandidates.push(
+          {
+            account_id: accountId,
+            category_id: null,
+            amount: transactionAmount,
+            memo: 'Loan payment',
+          },
+          {
+            account_id: matchedLoan.id,
+            category_id: null,
+            amount: principal ?? 0,
+            memo: 'Principal',
+          },
+          {
+            account_id: null,
+            category_id: null,
+            amount: interest ?? 0,
+            memo: 'Interest',
+          }
+        )
+      } else {
+        splitCandidates.push(
+          {
+            account_id: accountId,
+            category_id: null,
+            amount: transactionAmount,
+            memo: 'Loan payment',
+          },
+          {
+            account_id: matchedLoan.id,
+            category_id: null,
+            amount: -transactionAmount,
+            memo: 'Principal',
+          }
+        )
+      }
+    }
+  }
+
+  if (splitCandidates.length === 0) {
+    return false
+  }
+
+  const total = splitCandidates.reduce((sum, split) => sum + split.amount, 0)
+  if (Math.abs(total) > 0.01) {
+    console.warn('[ingest] Split imbalance detected, skipping splits', {
+      transactionId,
+      total,
+      payee,
+      description,
+    })
+    return false
+  }
+
+  const { error } = await supabaseAdmin.from('transaction_splits').insert(
+    splitCandidates.map((split) => ({
+      transaction_id: transactionId,
+      account_id: split.account_id,
+      category_id: split.category_id,
+      amount: split.amount,
+      memo: split.memo ?? null,
+    }))
+  )
+
+  if (error) {
+    console.warn('[ingest] Failed to create splits', error)
+    return false
+  }
+
+  await supabaseAdmin
+    .from('transactions')
+    .update({
+      is_split: true,
+    })
+    .eq('id', transactionId)
+
+  return true
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -65,17 +283,52 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (!accountId) {
+      return NextResponse.json(
+        { ok: false, error: 'Account selection is required before upload.' },
+        { status: 400 }
+      )
+    }
+
+    const resolvedAccountId = accountId
+
     if (debugIngest) {
       console.info('[ingest] Using account', { accountId })
     }
     
+    const { data: accountsLookup } = await supabaseAdmin
+      .from('accounts')
+      .select('id, name, type')
+      .eq('is_active', true)
+
+    const activeAccounts = accountsLookup || []
+
+    const inferredSource = transactions.find((item) => item.source_system)?.source_system ?? 'manual'
+
+    const { data: importBatch, error: importBatchError } = await supabaseAdmin
+      .from('import_batches')
+      .insert({
+        source: inferredSource,
+        metadata: {
+          parsed_count: transactions.length,
+          account_id: resolvedAccountId,
+        },
+        created_by: 'csv_upload',
+      })
+      .select('id')
+      .single()
+
+    if (importBatchError) {
+      console.warn('[ingest] Failed to create import batch', importBatchError)
+    }
+
     // Get existing transactions for deduplication
     const dates = [...new Set(transactions.map(t => t.date))]
     const { data: existingTransactions } = await supabaseAdmin
       .from('transactions')
-      .select('date, payee, amount')
+      .select('id, date, payee, amount, source, source_id, source_hash')
       .in('date', dates)
-      .eq('account_id', accountId)
+      .eq('account_id', resolvedAccountId)
     
     const existing = existingTransactions || []
     
@@ -87,12 +340,6 @@ export async function POST(request: NextRequest) {
     
     for (const transaction of transactions) {
       try {
-        // Check for duplicates
-        if (isDuplicateTransaction(transaction, existing)) {
-          duplicateCount++
-          continue
-        }
-        
         // Detect transfer
         const isTransfer = isLikelyTransfer(
           transaction.payee,
@@ -166,10 +413,54 @@ export async function POST(request: NextRequest) {
           confidence = suggestion.confidence
         }
         
+        const normalizedPayee = normalizePayeeName(transaction.payee)
+        const payeeId = await ensurePayeeId(normalizedPayee)
+        const source = transaction.source_system || 'manual'
+        const sourceId = transaction.reference?.trim() || null
+        const sourceHash = computeSourceHash({
+          accountId: resolvedAccountId,
+          date: transaction.date,
+          payee: normalizedPayee,
+          description: transaction.description || '',
+          amount: transaction.amount,
+          reference: transaction.reference || '',
+          source,
+        })
+
+        const existingBySourceId = sourceId
+          ? existing.find((item) => item.source === source && item.source_id === sourceId)
+          : null
+        const existingByHash = existing.find((item) => item.source_hash === sourceHash)
+        const existingMatch = existingBySourceId ?? existingByHash
+
+        const transactionPayload = {
+          account_id: resolvedAccountId,
+          date: transaction.date,
+          payee: normalizedPayee,
+          payee_id: payeeId,
+          payee_original: transaction.payee,
+          payee_display: normalizedPayee,
+          description: transaction.description || null,
+          amount: transaction.amount,
+          reference: transaction.reference || null,
+          status: transaction.status || 'SETTLED',
+          txn_status: 'posted',
+          is_transfer: isTransfer,
+          ai_suggested_category: categoryId,
+          ai_confidence: confidence,
+          review_status: 'needs_review',
+          reviewed: false,
+          source,
+          source_id: sourceId,
+          source_hash: sourceHash,
+          import_batch_id: importBatch?.id ?? null,
+          raw_csv_data: transaction.raw_data,
+        }
+
         // Insert transaction
         if (debugIngest) {
           console.info('[ingest] Inserting transaction', {
-            accountId,
+            accountId: resolvedAccountId,
             date: transaction.date,
             payee: transaction.payee,
             amount: transaction.amount,
@@ -178,25 +469,44 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        const { error: insertError } = await supabaseAdmin
+        if (existingMatch?.id) {
+          const { error: updateError } = await supabaseAdmin
+            .from('transactions')
+            .update({
+              ...transactionPayload,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingMatch.id)
+
+          if (updateError) {
+            throw updateError
+          }
+
+          duplicateCount++
+          continue
+        }
+
+        const { data: inserted, error: insertError } = await supabaseAdmin
           .from('transactions')
-          .insert({
-            account_id: accountId,
-            date: transaction.date,
-            payee: transaction.payee,
-            description: transaction.description || null,
-            amount: transaction.amount,
-            reference: transaction.reference || null,
-            status: transaction.status || 'SETTLED',
-            is_transfer: isTransfer,
-            ai_suggested_category: categoryId,
-            ai_confidence: confidence,
-            reviewed: false,
-            raw_csv_data: transaction.raw_data,
-          })
-        
-        if (insertError) {
+          .insert(transactionPayload)
+          .select('id')
+          .single()
+
+        if (insertError || !inserted) {
           throw insertError
+        }
+
+        if (inserted?.id) {
+          await createSplitsForTransaction({
+            transactionId: inserted.id,
+            transactionAmount: transaction.amount,
+            accountId: resolvedAccountId,
+            payee: normalizedPayee,
+            description: transaction.description,
+            transferToAccountId: null,
+            rawData: transaction.raw_data,
+            accounts: activeAccounts,
+          })
         }
 
         if (debugIngest) {
