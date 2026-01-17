@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { runCsvImport } from '@/lib/import-runner'
 import { CanonicalImportRow } from '@/lib/import/transform-to-canonical'
-import { validateMapping } from '@/lib/import-mapping'
+import { normalizeImportMapping, validateMapping } from '@/lib/import-mapping'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { AmountStrategy, ImportFieldMapping } from '@/types'
 
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     let mapping: ImportFieldMapping
     try {
-      mapping = JSON.parse(mappingPayload)
+      mapping = normalizeImportMapping(JSON.parse(mappingPayload))
     } catch (error) {
       return NextResponse.json(
         { ok: false, error: 'Invalid mapping payload.' },

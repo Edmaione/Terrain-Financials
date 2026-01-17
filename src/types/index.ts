@@ -83,6 +83,7 @@ export interface Transaction {
   memo?: string;
   amount: number;
   category_id?: string;
+  category_name?: string | null;
   subcategory_id?: string;
   primary_category_id?: string;
   job_id?: string;
@@ -207,8 +208,8 @@ export interface ImportFieldMapping {
   description: string | null;
   memo: string | null;
   reference: string | null;
-  category?: string | null;
-  status?: string | null;
+  category_name: string | null;
+  status: string | null;
 }
 
 export interface ParsedTransaction {
@@ -217,6 +218,7 @@ export interface ParsedTransaction {
   description?: string | null;
   memo?: string | null;
   amount: number;
+  category_name?: string | null;
   reference?: string | null;
   status?: TransactionStatus;
   source_system?: SourceSystem;

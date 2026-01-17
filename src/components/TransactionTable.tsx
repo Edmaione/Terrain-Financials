@@ -283,7 +283,8 @@ export default function TransactionTable({
                 transaction.subcategory ||
                 null
               const needsCategorizationLabel = 'Needs categorization'
-              const rawCategoryName = resolvedCategory?.name ?? null
+              const mappedCategoryName = transaction.category_name?.trim() || null
+              const rawCategoryName = resolvedCategory?.name ?? mappedCategoryName ?? null
               const categoryName =
                 rawCategoryName && rawCategoryName.startsWith(needsCategorizationLabel)
                   ? needsCategorizationLabel
@@ -343,6 +344,8 @@ export default function TransactionTable({
                             {transaction.ai_suggested.name}
                             <span className="ml-2 text-xs text-slate-500">AI suggested</span>
                           </div>
+                        ) : categoryName !== needsCategorizationLabel ? (
+                          <div className="font-medium text-slate-900">{categoryName}</div>
                         ) : (
                           <button
                             type="button"

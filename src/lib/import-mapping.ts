@@ -20,7 +20,7 @@ const FIELD_CANDIDATES: Record<keyof ImportFieldMapping, string[]> = {
   description: ['description', 'details', 'transaction_description'],
   memo: ['memo', 'notes', 'note'],
   reference: ['reference', 'ref', 'reference_number', 'check_number', 'check_or_slip', 'check_no'],
-  category: ['category', 'type'],
+  category_name: ['category', 'category_name', 'type', 'category_type'],
   status: ['status', 'state'],
 }
 
@@ -33,7 +33,7 @@ const EMPTY_MAPPING: ImportFieldMapping = {
   description: null,
   memo: null,
   reference: null,
-  category: null,
+  category_name: null,
   status: null,
 }
 
@@ -71,13 +71,26 @@ export function detectMappingFromHeaders(headers: string[]) {
   mapping.description = pickHeader(lookup, FIELD_CANDIDATES.description)
   mapping.memo = pickHeader(lookup, FIELD_CANDIDATES.memo)
   mapping.reference = pickHeader(lookup, FIELD_CANDIDATES.reference)
-  mapping.category = pickHeader(lookup, FIELD_CANDIDATES.category)
+  mapping.category_name = pickHeader(lookup, FIELD_CANDIDATES.category_name)
   mapping.status = pickHeader(lookup, FIELD_CANDIDATES.status)
 
   const amountStrategy: AmountStrategy =
     mapping.inflow && mapping.outflow && !mapping.amount ? 'inflow_outflow' : 'signed'
 
   return { mapping, amountStrategy }
+}
+
+export function normalizeImportMapping(
+  mapping: Partial<ImportFieldMapping> & { category?: string | null }
+): ImportFieldMapping {
+  return {
+    ...EMPTY_MAPPING,
+    ...mapping,
+    memo: mapping.memo ?? null,
+    reference: mapping.reference ?? null,
+    category_name: mapping.category_name ?? mapping.category ?? null,
+    status: mapping.status ?? null,
+  }
 }
 
 export function validateMapping({
@@ -116,7 +129,7 @@ export function buildMappingPayload(mapping: ImportFieldMapping) {
     description: mapping.description ?? null,
     memo: mapping.memo ?? null,
     reference: mapping.reference ?? null,
-    category: mapping.category ?? null,
+    category_name: mapping.category_name ?? null,
     status: mapping.status ?? null,
   }
 }

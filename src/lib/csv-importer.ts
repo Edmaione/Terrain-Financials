@@ -28,6 +28,7 @@ export type PreparedTransaction = {
     description: string | null
     memo: string | null
     amount: number
+    category_name?: string | null
     reference: string | null
     status: string
     txn_status: 'posted'
@@ -352,6 +353,7 @@ export async function prepareCsvTransactions({
           description: description || null,
           memo: memo || null,
           amount: transaction.amount,
+          category_name: normalizeOptionalText(transaction.category_name),
           reference: reference || null,
           status: transaction.status || 'SETTLED',
           txn_status: 'posted',
