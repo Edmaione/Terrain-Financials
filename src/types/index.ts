@@ -191,6 +191,26 @@ export interface CSVRow {
   [key: string]: string;
 }
 
+export interface ParsedCSV {
+  headers: string[];
+  rows: CSVRow[];
+}
+
+export type AmountStrategy = 'signed' | 'inflow_outflow';
+
+export interface ImportFieldMapping {
+  date: string | null;
+  amount: string | null;
+  inflow: string | null;
+  outflow: string | null;
+  payee: string | null;
+  description: string | null;
+  memo: string | null;
+  reference: string | null;
+  category?: string | null;
+  status?: string | null;
+}
+
 export interface ParsedTransaction {
   date: string;
   payee: string;

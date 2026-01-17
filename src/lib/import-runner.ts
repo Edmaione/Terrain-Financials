@@ -1,9 +1,11 @@
 import { createHash } from 'crypto'
 import { parseCSVText } from '@/lib/csv-parser'
-import { prepareCsvTransactions, type PreparedTransaction } from '@/lib/csv-importer'
+import { prepareCsvTransactions, resolveTransactionFields, type PreparedTransaction } from '@/lib/csv-importer'
 import { planCsvImport } from '@/lib/import-idempotency'
+import { transformImportRows } from '@/lib/import-transform'
+import { validateMapping } from '@/lib/import-mapping'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { ParsedTransaction } from '@/types'
+import { AmountStrategy, ImportFieldMapping, ParsedTransaction } from '@/types'
 
 const CHUNK_SIZE = 500
 
@@ -22,14 +24,15 @@ type InsertedTransactionRow = {
 }
 
 function hashImportRow(transaction: ParsedTransaction, rowNumber: number) {
+  const { description, memo, reference } = resolveTransactionFields(transaction)
   const normalizedPayload = {
     rowNumber,
     date: transaction.date,
     payee: transaction.payee?.trim().toLowerCase() ?? '',
-    description: transaction.description?.trim() ?? '',
-    memo: transaction.memo?.trim() ?? '',
+    description: description?.trim() ?? '',
+    memo: memo?.trim() ?? '',
     amount: transaction.amount,
-    reference: transaction.reference?.trim() ?? '',
+    reference: reference?.trim() ?? '',
     status: transaction.status ?? 'SETTLED',
     source_system: transaction.source_system ?? 'manual',
     raw_data: transaction.raw_data ?? {},
@@ -167,15 +170,26 @@ export async function runCsvImport({
   importId,
   accountId,
   fileText,
+  mapping,
+  amountStrategy,
+  sourceSystem,
 }: {
   importId: string
   accountId: string
   fileText: string
+  mapping: ImportFieldMapping
+  amountStrategy: AmountStrategy
+  sourceSystem?: ParsedTransaction['source_system']
 }) {
   const debugIngest = process.env.INGEST_DEBUG === 'true'
   const shouldLogDescriptionStats = process.env.NODE_ENV !== 'production'
 
   try {
+    const validation = validateMapping({ mapping, amountStrategy })
+    if (!validation.isValid) {
+      throw new Error(validation.errors.join(' '))
+    }
+
     const importRecord = await fetchImport(importId)
 
     if (importRecord.status === 'canceled') {
@@ -201,19 +215,26 @@ export async function runCsvImport({
       return
     }
 
-    const parsedTransactions = parseCSVText(fileText)
+    const parsedCsv = parseCSVText(fileText)
+    const { transactions: parsedTransactions, errors: transformErrors } = transformImportRows({
+      rows: parsedCsv.rows,
+      mapping,
+      amountStrategy,
+      sourceSystem,
+    })
 
     if (debugIngest) {
       console.info('[ingest] Parsed transactions', {
         importId,
         parsedCount: parsedTransactions.length,
         sample: parsedTransactions.slice(0, 3),
+        transformErrors: transformErrors.slice(0, 3),
       })
     }
 
     await supabaseAdmin
       .from('imports')
-      .update({ total_rows: parsedTransactions.length })
+      .update({ total_rows: parsedCsv.rows.length })
       .eq('id', importId)
 
     const { data: accountsLookup } = await supabaseAdmin
@@ -226,7 +247,7 @@ export async function runCsvImport({
     let processedRows = 0
     let insertedRows = 0
     let skippedRows = 0
-    let errorRows = 0
+    let errorRows = transformErrors.length
     let descriptionPopulated = 0
     let descriptionMissing = 0
 
@@ -306,7 +327,7 @@ export async function runCsvImport({
       await supabaseAdmin
         .from('imports')
         .update({
-          processed_rows: processedRows,
+          processed_rows: processedRows + errorRows,
           inserted_rows: insertedRows,
           skipped_rows: skippedRows,
           error_rows: errorRows,
@@ -319,7 +340,7 @@ export async function runCsvImport({
       .update({
         status: 'succeeded',
         finished_at: new Date().toISOString(),
-        processed_rows: processedRows,
+        processed_rows: processedRows + errorRows,
         inserted_rows: insertedRows,
         skipped_rows: skippedRows,
         error_rows: errorRows,
