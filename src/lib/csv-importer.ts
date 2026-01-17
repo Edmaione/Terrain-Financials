@@ -1,4 +1,5 @@
 import { categorizeTransaction, detectTransactionType } from '@/lib/categorization-engine'
+import { normalizeExternalCategoryLabel } from '@/lib/category-mappings'
 import { isLikelyTransfer } from '@/lib/csv-parser'
 import { assertBalancedSplits, computeSourceHash, normalizePayeeName } from '@/lib/ledger'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -28,6 +29,8 @@ export type PreparedTransaction = {
     description: string | null
     memo: string | null
     amount: number
+    category_id?: string | null
+    primary_category_id?: string | null
     category_name?: string | null
     reference: string | null
     status: string
@@ -232,6 +235,32 @@ export async function prepareCsvTransactions({
 }) {
   const preparedTransactions: PreparedTransaction[] = []
   const errors: string[] = []
+  const normalizedCategoryLabels = Array.from(
+    new Set(
+      transactions
+        .map((transaction) => normalizeExternalCategoryLabel(transaction.category_name))
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+  const categoryMappingByLabel = new Map<string, string>()
+
+  if (normalizedCategoryLabels.length > 0) {
+    const { data: mappingRows, error: mappingError } = await supabaseAdmin
+      .from('category_mappings')
+      .select('external_label_norm, category_id')
+      .eq('account_id', accountId)
+      .in('external_label_norm', normalizedCategoryLabels)
+
+    if (mappingError) {
+      console.warn('[ingest] Category mapping lookup failed:', mappingError)
+    } else {
+      for (const mapping of mappingRows || []) {
+        if (mapping.external_label_norm && mapping.category_id) {
+          categoryMappingByLabel.set(mapping.external_label_norm, mapping.category_id)
+        }
+      }
+    }
+  }
 
   for (const [index, transaction] of transactions.entries()) {
     const rowNumber = transaction.rowNumber ?? rowOffset + index + 1
@@ -250,10 +279,13 @@ export async function prepareCsvTransactions({
         reference || ''
       )
 
-      let categoryId: string | null = null
+      const normalizedCategoryLabel = normalizeExternalCategoryLabel(transaction.category_name)
+      const mappedCategoryId =
+        (normalizedCategoryLabel && categoryMappingByLabel.get(normalizedCategoryLabel)) || null
+      let suggestedCategoryId: string | null = null
       let confidence = 0
 
-      if (typeInfo.isPayroll && typeInfo.payrollType) {
+      if (!mappedCategoryId && typeInfo.isPayroll && typeInfo.payrollType) {
         const categoryName =
           typeInfo.payrollType === 'wages'
             ? 'LS Technician Wages'
@@ -268,10 +300,10 @@ export async function prepareCsvTransactions({
           .single()
 
         if (category) {
-          categoryId = category.id
+          suggestedCategoryId = category.id
           confidence = 0.98
         }
-      } else if (typeInfo.isInsurance) {
+      } else if (!mappedCategoryId && typeInfo.isInsurance) {
         const { data: category } = await supabaseAdmin
           .from('categories')
           .select('id')
@@ -279,10 +311,10 @@ export async function prepareCsvTransactions({
           .single()
 
         if (category) {
-          categoryId = category.id
+          suggestedCategoryId = category.id
           confidence = 0.95
         }
-      } else if (typeInfo.isUtility) {
+      } else if (!mappedCategoryId && typeInfo.isUtility) {
         const { data: category } = await supabaseAdmin
           .from('categories')
           .select('id')
@@ -290,19 +322,19 @@ export async function prepareCsvTransactions({
           .single()
 
         if (category) {
-          categoryId = category.id
+          suggestedCategoryId = category.id
           confidence = 0.95
         }
       }
 
-      if (!categoryId) {
+      if (!mappedCategoryId && !suggestedCategoryId) {
         const suggestion = await categorizeTransaction({
           payee: transaction.payee,
           description,
           amount: transaction.amount,
         })
 
-        categoryId = suggestion.category_id
+        suggestedCategoryId = suggestion.category_id
         confidence = suggestion.confidence
       }
 
@@ -353,12 +385,14 @@ export async function prepareCsvTransactions({
           description: description || null,
           memo: memo || null,
           amount: transaction.amount,
+          category_id: mappedCategoryId,
+          primary_category_id: mappedCategoryId,
           category_name: normalizeOptionalText(transaction.category_name),
           reference: reference || null,
           status: transaction.status || 'SETTLED',
           txn_status: 'posted',
           is_transfer: isTransfer,
-          ai_suggested_category: categoryId,
+          ai_suggested_category: suggestedCategoryId,
           ai_confidence: confidence,
           review_status: 'needs_review',
           reviewed: false,
@@ -380,7 +414,7 @@ export async function prepareCsvTransactions({
           date: transaction.date,
           payee: transaction.payee,
           amount: transaction.amount,
-          aiSuggestedCategory: categoryId,
+          aiSuggestedCategory: mappedCategoryId ?? suggestedCategoryId,
           confidence,
         })
       }
