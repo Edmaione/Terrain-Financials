@@ -1,23 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { IconFileUp, IconUploadCloud } from '@/components/ui/icons'
 import { parseCSV } from '@/lib/csv-parser'
-import { ParsedTransaction } from '@/types'
+import { ImportRecord, ParsedTransaction } from '@/types'
 import { apiRequest } from '@/lib/api-client'
 import AlertBanner from '@/components/AlertBanner'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { useToast } from '@/components/ui/Toast'
-
-type UploadSummary = {
-  parsed_count: number
-  imported_count: number
-  duplicate_count: number
-  error_count: number
-  errors?: string[]
-}
 
 export default function CSVUploader({
   accounts,
@@ -35,7 +27,7 @@ export default function CSVUploader({
   const [dragActive, setDragActive] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [accountId, setAccountId] = useState(selectedAccountId ?? '')
-  const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null)
+  const [currentImport, setCurrentImport] = useState<ImportRecord | null>(null)
   const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
 
@@ -65,21 +57,25 @@ export default function CSVUploader({
     e.stopPropagation()
     setDragActive(false)
 
-    const droppedFiles = Array.from(e.dataTransfer.files).filter(
-      (file) => file.name.endsWith('.csv')
+    const droppedFiles = Array.from(e.dataTransfer.files).filter((file) =>
+      file.name.endsWith('.csv')
     )
 
     if (droppedFiles.length > 0) {
-      setFiles(droppedFiles)
-      handleParse(droppedFiles)
+      const firstFile = droppedFiles[0]
+      setFiles([firstFile])
+      handleParse([firstFile])
     }
   }
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const selectedFiles = Array.from(e.target.files)
-      setFiles(selectedFiles)
-      handleParse(selectedFiles)
+      const firstFile = selectedFiles[0]
+      if (firstFile) {
+        setFiles([firstFile])
+        handleParse([firstFile])
+      }
     }
   }
 
@@ -87,7 +83,12 @@ export default function CSVUploader({
     setError(null)
     setSuccessMessage(null)
     setParsedData([])
-    setUploadSummary(null)
+    setCurrentImport(null)
+    if (searchParams.get('import_id')) {
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('import_id')
+      router.push(`/upload?${params.toString()}`)
+    }
 
     try {
       const allTransactions: ParsedTransaction[] = []
@@ -117,34 +118,114 @@ export default function CSVUploader({
     }
   }
 
+  const fetchImport = async (importId: string) => {
+    try {
+      const result = await apiRequest<{ import: ImportRecord }>(`/api/imports/${importId}`)
+      setCurrentImport(result.import)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load import status'
+      setError(message)
+    }
+  }
+
+  const handleCancelImport = async () => {
+    if (!currentImport) return
+
+    try {
+      const result = await apiRequest<{ import: ImportRecord }>(`/api/imports/${currentImport.id}`, {
+        method: 'PATCH',
+      })
+      setCurrentImport(result.import)
+      toast({
+        variant: 'success',
+        title: 'Import canceled',
+        description: 'The import has been canceled and will stop shortly.',
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel import'
+      toast({
+        variant: 'error',
+        title: 'Cancel failed',
+        description: message,
+      })
+    }
+  }
+
+  useEffect(() => {
+    const importIdParam = searchParams.get('import_id')
+    if (importIdParam) {
+      void fetchImport(importIdParam)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    if (!currentImport?.id) return
+    if (['succeeded', 'failed', 'canceled'].includes(currentImport.status)) return
+
+    const interval = window.setInterval(() => {
+      void fetchImport(currentImport.id)
+    }, 2000)
+
+    return () => window.clearInterval(interval)
+  }, [currentImport?.id, currentImport?.status])
+
+  const progressPercent = useMemo(() => {
+    const total = currentImport?.total_rows ?? 0
+    if (!currentImport || total === 0) return 0
+    const processed = currentImport.processed_rows ?? 0
+    return Math.min(100, Math.round((processed / total) * 100))
+  }, [currentImport])
+
   const handleUpload = async () => {
     setUploading(true)
     setError(null)
     setSuccessMessage(null)
-    setUploadSummary(null)
+    setCurrentImport(null)
 
     try {
       if (!accountId) {
         throw new Error('Select an account before uploading.')
       }
 
-      const result = await apiRequest<UploadSummary>('/api/upload/csv', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          transactions: parsedData,
-          accountId,
-        }),
-      })
+      const file = files[0]
 
-      const message = `Imported ${result.imported_count} transactions. ${result.duplicate_count} duplicates skipped.`
+      if (!file) {
+        throw new Error('Select a CSV file before uploading.')
+      }
+
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('accountId', accountId)
+
+      const result = await apiRequest<{ import: ImportRecord; existing: boolean }>(
+        '/api/upload/csv',
+        {
+          method: 'POST',
+          body: formData,
+        }
+      )
+
+      if (result.existing) {
+        toast({
+          variant: 'warning',
+          title: 'Import already running',
+          description: 'Reconnecting to the active import instead of starting a new one.',
+        })
+      }
+
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('import_id', result.import.id)
+      router.push(`/upload?${params.toString()}`)
+
+      setCurrentImport(result.import)
+
+      const message = result.existing
+        ? 'Import is already in progress.'
+        : 'Import started. We will keep you updated on progress.'
       setSuccessMessage(message)
-      setUploadSummary(result)
       toast({
-        variant: 'success',
-        title: 'Upload complete',
+        variant: result.existing ? 'warning' : 'success',
+        title: result.existing ? 'Import resumed' : 'Import started',
         description: message,
       })
     } catch (err) {
@@ -185,13 +266,12 @@ export default function CSVUploader({
           <div>
             <label htmlFor="file-upload" className="cursor-pointer">
               <span className="text-slate-900 font-semibold hover:text-slate-700">
-                Upload CSV files
+                Upload CSV file
               </span>
               <input
                 id="file-upload"
                 type="file"
                 className="sr-only"
-                multiple
                 accept=".csv"
                 onChange={handleFileInput}
               />
@@ -228,7 +308,7 @@ export default function CSVUploader({
 
       {files.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium text-slate-900">Selected files</h3>
+          <h3 className="text-sm font-medium text-slate-900">Selected file</h3>
           {files.map((file, idx) => (
             <div
               key={idx}
@@ -250,47 +330,76 @@ export default function CSVUploader({
       {successMessage && (
         <AlertBanner
           variant="success"
-          title="Upload complete"
+          title="Import update"
           message={successMessage}
-          actions={(
+          actions={currentImport?.status === 'succeeded' ? (
             <a href={reviewHref} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
               <IconFileUp className="h-4 w-4" />
               Review unreviewed transactions
             </a>
-          )}
+          ) : undefined}
         />
       )}
 
-      {uploadSummary && (
+      {currentImport && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-          <h3 className="text-sm font-semibold text-slate-900">Import summary</h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Parsed</p>
-              <p className="text-lg font-semibold text-slate-900">{uploadSummary.parsed_count}</p>
+              <h3 className="text-sm font-semibold text-slate-900">Import progress</h3>
+              <p className="text-xs text-slate-500">
+                Status: <span className="font-semibold text-slate-700">{currentImport.status}</span>
+              </p>
+              {currentImport.file_name && (
+                <p className="text-xs text-slate-400">File: {currentImport.file_name}</p>
+              )}
+            </div>
+            {['queued', 'running'].includes(currentImport.status) && (
+              <Button onClick={handleCancelImport} variant="secondary">
+                Cancel import
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <div className="h-2 w-full rounded-full bg-slate-200">
+              <div
+                className="h-2 rounded-full bg-emerald-500 transition-all"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              {currentImport.processed_rows ?? 0} of {currentImport.total_rows ?? 0} rows processed
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Processed</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {currentImport.processed_rows ?? 0}
+              </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Imported</p>
-              <p className="text-lg font-semibold text-emerald-600">{uploadSummary.imported_count}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Inserted</p>
+              <p className="text-lg font-semibold text-emerald-600">
+                {currentImport.inserted_rows ?? 0}
+              </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Duplicates</p>
-              <p className="text-lg font-semibold text-slate-900">{uploadSummary.duplicate_count}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Skipped</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {currentImport.skipped_rows ?? 0}
+              </p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Errors</p>
-              <p className="text-lg font-semibold text-rose-600">{uploadSummary.error_count}</p>
+              <p className="text-lg font-semibold text-rose-600">
+                {currentImport.error_rows ?? 0}
+              </p>
             </div>
           </div>
-          {uploadSummary.errors && uploadSummary.errors.length > 0 && (
-            <details className="mt-4 text-sm text-slate-600">
-              <summary className="cursor-pointer font-medium text-slate-700">View row-level errors</summary>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-500">
-                {uploadSummary.errors.map((err, idx) => (
-                  <li key={idx}>{err}</li>
-                ))}
-              </ul>
-            </details>
+          {currentImport.last_error && currentImport.status === 'failed' && (
+            <p className="mt-4 text-sm text-rose-600">{currentImport.last_error}</p>
           )}
         </div>
       )}
@@ -306,7 +415,11 @@ export default function CSVUploader({
             </div>
             <Button
               onClick={handleUpload}
-              disabled={uploading || !accountId}
+              disabled={
+                uploading ||
+                !accountId ||
+                ['queued', 'running'].includes(currentImport?.status ?? '')
+              }
               variant="primary"
             >
               {uploading ? 'Importing...' : 'Import transactions'}

@@ -128,6 +128,30 @@ CREATE TABLE import_batches (
 );
 
 -- ============================================================================
+-- IMPORTS TABLE
+-- ============================================================================
+CREATE TABLE imports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    account_id UUID NOT NULL,
+    created_by UUID,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    file_name TEXT,
+    file_size BIGINT,
+    file_sha256 TEXT,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
+    canceled_at TIMESTAMP WITH TIME ZONE,
+    started_at TIMESTAMP WITH TIME ZONE,
+    finished_at TIMESTAMP WITH TIME ZONE,
+    total_rows INTEGER,
+    processed_rows INTEGER DEFAULT 0,
+    inserted_rows INTEGER DEFAULT 0,
+    skipped_rows INTEGER DEFAULT 0,
+    error_rows INTEGER DEFAULT 0,
+    last_error TEXT
+);
+
+-- ============================================================================
 -- TRANSACTIONS TABLE
 -- ============================================================================
 CREATE TABLE transactions (
@@ -177,6 +201,9 @@ CREATE TABLE transactions (
     notes TEXT,
     raw_csv_data JSONB, -- Original CSV row for reference
     import_batch_id UUID REFERENCES import_batches(id) ON DELETE SET NULL,
+    import_id UUID REFERENCES imports(id) ON DELETE SET NULL,
+    import_row_number INTEGER,
+    import_row_hash TEXT,
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -287,6 +314,12 @@ CREATE INDEX idx_transactions_source_hash ON transactions(source_hash);
 CREATE INDEX idx_transactions_source_source_hash ON transactions(source, source_hash);
 CREATE INDEX idx_transactions_review_status ON transactions(review_status);
 CREATE INDEX idx_transactions_primary_category ON transactions(primary_category_id);
+CREATE INDEX imports_account_id_created_at_idx ON imports(account_id, created_at DESC);
+CREATE INDEX imports_status_idx ON imports(status);
+CREATE UNIQUE INDEX imports_single_flight_idx ON imports(account_id, file_sha256)
+    WHERE status IN ('queued', 'running');
+CREATE UNIQUE INDEX transactions_import_row_hash_idx ON transactions(import_id, import_row_hash)
+    WHERE import_id IS NOT NULL AND import_row_hash IS NOT NULL;
 CREATE INDEX idx_categorization_rules_payee ON categorization_rules(payee_pattern);
 CREATE INDEX idx_stripe_payments_date ON stripe_payments(payment_date DESC);
 CREATE UNIQUE INDEX idx_payees_name ON payees(LOWER(name));
@@ -485,6 +518,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON accounts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -505,6 +546,9 @@ CREATE TRIGGER update_import_batches_updated_at BEFORE UPDATE ON import_batches
 
 CREATE TRIGGER update_transaction_splits_updated_at BEFORE UPDATE ON transaction_splits
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_imports_updated_at BEFORE UPDATE ON imports
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ============================================================================
 -- SEED CATEGORIES (Based on QuickBooks P&L Structure)
