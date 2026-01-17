@@ -214,10 +214,10 @@ export interface ImportFieldMapping {
 export interface ParsedTransaction {
   date: string;
   payee: string;
-  description?: string;
-  memo?: string;
+  description?: string | null;
+  memo?: string | null;
   amount: number;
-  reference?: string;
+  reference?: string | null;
   status?: TransactionStatus;
   source_system?: SourceSystem;
   account_number?: string;

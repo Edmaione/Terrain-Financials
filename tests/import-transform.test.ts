@@ -106,4 +106,69 @@ describe('transformImportRows', () => {
     expect(result.transactions[0].description).toBe('INV-4')
     expect(result.transactions[0].payee).toBe('Fallback Vendor')
   })
+
+  it('uses payee as description when only payee is provided', () => {
+    const rows = [
+      {
+        Date: '2024-05-01',
+        Amount: '12.00',
+        Payee: 'Corner Store',
+      },
+    ]
+
+    const mapping: ImportFieldMapping = {
+      date: 'Date',
+      amount: 'Amount',
+      inflow: null,
+      outflow: null,
+      payee: 'Payee',
+      description: null,
+      memo: null,
+      reference: null,
+      category: null,
+      status: null,
+    }
+
+    const result = transformImportRows({
+      rows,
+      mapping,
+      amountStrategy: 'signed' as AmountStrategy,
+    })
+
+    expect(result.transactions[0].description).toBe('Corner Store')
+  })
+
+  it('keeps provided description over memo/reference/payee', () => {
+    const rows = [
+      {
+        Date: '2024-06-01',
+        Amount: '25.00',
+        Payee: 'Cafe',
+        Description: 'Breakfast meeting',
+        Memo: 'Team sync',
+        Reference: 'REF-99',
+      },
+    ]
+
+    const mapping: ImportFieldMapping = {
+      date: 'Date',
+      amount: 'Amount',
+      inflow: null,
+      outflow: null,
+      payee: 'Payee',
+      description: 'Description',
+      memo: 'Memo',
+      reference: 'Reference',
+      category: null,
+      status: null,
+    }
+
+    const result = transformImportRows({
+      rows,
+      mapping,
+      amountStrategy: 'signed' as AmountStrategy,
+    })
+
+    expect(result.transactions[0].description).toBe('Breakfast meeting')
+  })
 })

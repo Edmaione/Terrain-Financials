@@ -10,7 +10,7 @@ import {
   detectMappingFromHeaders,
   validateMapping,
 } from '@/lib/import-mapping'
-import { transformImportRows } from '@/lib/import-transform'
+import { transformImportRows } from '@/lib/import/transform-to-canonical'
 import { AmountStrategy, CSVRow, ImportFieldMapping, ImportRecord } from '@/types'
 import { apiRequest } from '@/lib/api-client'
 import AlertBanner from '@/components/AlertBanner'
