@@ -3,6 +3,8 @@ import type { SVGProps } from 'react'
 export type IconProps = SVGProps<SVGSVGElement>
 
 const baseProps = {
+  width: '1em',
+  height: '1em',
   fill: 'none',
   stroke: 'currentColor',
   strokeWidth: 1.5,

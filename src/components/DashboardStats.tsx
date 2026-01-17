@@ -62,9 +62,9 @@ export default function DashboardStats({
           <Card key={stat.name} className="p-5">
             <div className="flex items-center justify-between">
               <div
-                className={`flex h-8 w-8 items-center justify-center rounded-full ${stat.iconTone}`}
+                className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.iconTone}`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-[18px] w-[18px]" />
               </div>
             </div>
             <p className="mt-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500">
