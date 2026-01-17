@@ -8,6 +8,7 @@ import { computeHeaderFingerprint } from '@/lib/import-header-fingerprint'
 import {
   buildMappingPayload,
   detectMappingFromHeaders,
+  normalizeImportMapping,
   validateMapping,
 } from '@/lib/import-mapping'
 import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-to-canonical'
@@ -41,7 +42,7 @@ export default function CSVUploader({
     description: null,
     memo: null,
     reference: null,
-    category: null,
+    category_name: null,
     status: null,
   })
   const [amountStrategy, setAmountStrategy] = useState<AmountStrategy>('signed')
@@ -50,6 +51,7 @@ export default function CSVUploader({
   const [saveTemplate, setSaveTemplate] = useState(false)
   const [mappingDirty, setMappingDirty] = useState(false)
   const [mappingLoading, setMappingLoading] = useState(false)
+  const [showMoreFields, setShowMoreFields] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -153,12 +155,13 @@ export default function CSVUploader({
       setParsedRows(allRows)
       setParsedHeaders(headers)
       setHeaderFingerprint(fingerprint)
-      setMapping(detected.mapping)
+      setMapping(normalizeImportMapping(detected.mapping))
       setAmountStrategy(detected.amountStrategy)
       setMappingId(null)
       setMappingName('')
       setSaveTemplate(false)
       setMappingDirty(false)
+      setShowMoreFields(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to parse CSV'
       setError(message)
@@ -233,7 +236,7 @@ export default function CSVUploader({
         if (cancelled) return
 
         if (result.mapping) {
-          setMapping(result.mapping.mapping)
+          setMapping(normalizeImportMapping(result.mapping.mapping))
           setAmountStrategy(result.mapping.amount_strategy)
           setMappingId(result.mapping.id)
           setMappingName(result.mapping.mapping_name ?? '')
@@ -628,18 +631,18 @@ export default function CSVUploader({
       )}
 
       {parsedRows.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">Field mapping</h3>
-              <p className="text-xs text-slate-500">
-                Match the preview columns to the CSV headers below.
-              </p>
-            </div>
-            {mappingLoading && (
-              <span className="text-xs text-slate-400">Loading saved mapping…</span>
-            )}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Field mapping</h3>
+            <p className="text-xs text-slate-500">
+              Match the preview columns to the CSV headers below.
+            </p>
           </div>
+          {mappingLoading && (
+            <span className="text-xs text-slate-400">Loading saved mapping…</span>
+          )}
+        </div>
 
           {mappingValidation.errors.length > 0 && (
             <AlertBanner
@@ -711,6 +714,96 @@ export default function CSVUploader({
               )}
             </div>
           </div>
+
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">More fields</p>
+              <p className="text-xs text-slate-500">
+                Map optional fields like category, memo, and status.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMoreFields((prev) => !prev)}
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+              aria-expanded={showMoreFields}
+            >
+              {showMoreFields ? 'Hide' : 'Show'}
+            </button>
+          </div>
+
+          {showMoreFields && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Category
+                </label>
+                <Select
+                  value={mapping.category_name ?? ''}
+                  onChange={(event) => updateMappingField('category_name', event.target.value)}
+                  className="mt-2 w-full text-xs"
+                >
+                  <option value="">Select column</option>
+                  {parsedHeaders.map((header) => (
+                    <option key={`category-${header}`} value={header}>
+                      {header}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Memo
+                </label>
+                <Select
+                  value={mapping.memo ?? ''}
+                  onChange={(event) => updateMappingField('memo', event.target.value)}
+                  className="mt-2 w-full text-xs"
+                >
+                  <option value="">Select column</option>
+                  {parsedHeaders.map((header) => (
+                    <option key={`memo-${header}`} value={header}>
+                      {header}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Reference
+                </label>
+                <Select
+                  value={mapping.reference ?? ''}
+                  onChange={(event) => updateMappingField('reference', event.target.value)}
+                  className="mt-2 w-full text-xs"
+                >
+                  <option value="">Select column</option>
+                  {parsedHeaders.map((header) => (
+                    <option key={`reference-${header}`} value={header}>
+                      {header}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Status
+                </label>
+                <Select
+                  value={mapping.status ?? ''}
+                  onChange={(event) => updateMappingField('status', event.target.value)}
+                  className="mt-2 w-full text-xs"
+                >
+                  <option value="">Select column</option>
+                  {parsedHeaders.map((header) => (
+                    <option key={`status-${header}`} value={header}>
+                      {header}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -801,60 +894,12 @@ export default function CSVUploader({
                     </th>
                     <th className="px-4 py-3 text-left">
                       <div className="space-y-2">
-                        <span>Memo</span>
-                        <Select
-                          value={mapping.memo ?? ''}
-                          onChange={(event) => updateMappingField('memo', event.target.value)}
-                          className="w-full text-xs"
-                        >
-                          <option value="">Select column</option>
-                          {parsedHeaders.map((header) => (
-                            <option key={`memo-${header}`} value={header}>
-                              {header}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left">
-                      <div className="space-y-2">
-                        <span>Reference</span>
-                        <Select
-                          value={mapping.reference ?? ''}
-                          onChange={(event) =>
-                            updateMappingField('reference', event.target.value)
-                          }
-                          className="w-full text-xs"
-                        >
-                          <option value="">Select column</option>
-                          {parsedHeaders.map((header) => (
-                            <option key={`reference-${header}`} value={header}>
-                              {header}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left">
-                      <div className="space-y-2">
-                        <span>Status</span>
-                        <Select
-                          value={mapping.status ?? ''}
-                          onChange={(event) => updateMappingField('status', event.target.value)}
-                          className="w-full text-xs"
-                        >
-                          <option value="">Select column</option>
-                          {parsedHeaders.map((header) => (
-                            <option key={`status-${header}`} value={header}>
-                              {header}
-                            </option>
-                          ))}
-                        </Select>
+                        <span>Category</span>
                       </div>
                     </th>
                     <th className="px-4 py-3 text-right">
                       <div className="space-y-2">
-                        <span>Amount</span>
+                        <span className="block text-left">Amount</span>
                         {amountStrategy === 'signed' ? (
                           <Select
                             value={mapping.amount ?? ''}
@@ -906,7 +951,7 @@ export default function CSVUploader({
                   {previewResult.transactions.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={5}
                         className="px-4 py-6 text-center text-sm text-slate-500"
                       >
                         No preview rows yet. Adjust the mapping to continue.
@@ -928,13 +973,7 @@ export default function CSVUploader({
                           {transaction.description ?? 'No description'}
                         </td>
                         <td className="px-4 py-3 text-sm text-slate-500">
-                          {transaction.memo ?? ''}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-500">
-                          {transaction.reference ?? ''}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-500">
-                          {transaction.status ?? 'SETTLED'}
+                          {transaction.category_name ?? ''}
                         </td>
                         <td
                           className={`px-4 py-3 text-sm font-semibold text-right whitespace-nowrap ${

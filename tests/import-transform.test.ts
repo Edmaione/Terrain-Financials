@@ -22,7 +22,7 @@ describe('transformImportRows', () => {
       description: null,
       memo: 'Memo',
       reference: null,
-      category: null,
+      category_name: null,
       status: null,
     }
 
@@ -60,7 +60,7 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category: null,
+      category_name: null,
       status: null,
     }
 
@@ -93,7 +93,7 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: 'Reference',
-      category: null,
+      category_name: null,
       status: null,
     }
 
@@ -125,7 +125,7 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category: null,
+      category_name: null,
       status: null,
     }
 
@@ -159,7 +159,7 @@ describe('transformImportRows', () => {
       description: 'Description',
       memo: 'Memo',
       reference: 'Reference',
-      category: null,
+      category_name: null,
       status: null,
     }
 
@@ -190,7 +190,7 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category: null,
+      category_name: null,
       status: null,
     }
 
@@ -225,7 +225,7 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category: null,
+      category_name: null,
       status: null,
     }
 
@@ -237,5 +237,44 @@ describe('transformImportRows', () => {
 
     expect(result.transactions[0].payee).toBe('Mapped Payee')
     expect(result.transactions[0].amount).toBe(18.25)
+  })
+
+  it('maps category name and trims empty values to null', async () => {
+    const rows = [
+      {
+        Date: '2024-09-01',
+        Amount: '9.99',
+        Payee: 'Example Store',
+        Category: ' Office Supplies ',
+      },
+      {
+        Date: '2024-09-02',
+        Amount: '5.00',
+        Payee: 'Blank Category',
+        Category: '   ',
+      },
+    ]
+
+    const mapping: ImportFieldMapping = {
+      date: 'Date',
+      amount: 'Amount',
+      inflow: null,
+      outflow: null,
+      payee: 'Payee',
+      description: null,
+      memo: null,
+      reference: null,
+      category_name: 'Category',
+      status: null,
+    }
+
+    const result = await transformImportRows({
+      rows,
+      mapping,
+      amountStrategy: 'signed' as AmountStrategy,
+    })
+
+    expect(result.transactions[0].category_name).toBe('Office Supplies')
+    expect(result.transactions[1].category_name).toBeNull()
   })
 })

@@ -189,6 +189,7 @@ export async function transformImportRows({
     const description = normalizeValue(readMappedValue(row, mapping.description))
     const memo = normalizeValue(readMappedValue(row, mapping.memo))
     const reference = normalizeValue(readMappedValue(row, mapping.reference))
+    const category_name = normalizeValue(readMappedValue(row, mapping.category_name))
     const resolvedDescription = description ?? memo ?? reference ?? payee ?? null
     const resolvedPayee = payee ?? resolvedDescription ?? 'Unknown'
     const status = parseStatus(readMappedValue(row, mapping.status)) ?? 'SETTLED'
@@ -212,6 +213,7 @@ export async function transformImportRows({
       description: resolvedDescription,
       memo,
       amount,
+      category_name,
       reference,
       status,
       source_system: sourceSystem,
