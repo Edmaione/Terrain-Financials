@@ -20,22 +20,34 @@ function toDateString(date: Date) {
   return date.toISOString().split('T')[0]
 }
 
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0)
+}
+
 function getDateRange(range: string, start?: string, end?: string): DateRange {
   const now = new Date()
+  const today = toDateString(now)
 
   switch (range) {
     case 'last_month': {
-      const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-      const endDate = new Date(now.getFullYear(), now.getMonth(), 0)
-      return { start: toDateString(startDate), end: toDateString(endDate), label: 'Last month' }
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      return {
+        start: toDateString(startOfMonth(lastMonth)),
+        end: toDateString(endOfMonth(lastMonth)),
+        label: 'Last month',
+      }
     }
     case 'last_3_months': {
       const startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1)
-      return { start: toDateString(startDate), end: toDateString(now), label: 'Last 3 months' }
+      return { start: toDateString(startOfMonth(startDate)), end: today, label: 'Last 3 months' }
     }
     case 'ytd': {
       const startDate = new Date(now.getFullYear(), 0, 1)
-      return { start: toDateString(startDate), end: toDateString(now), label: 'Year to date' }
+      return { start: toDateString(startDate), end: today, label: 'Year to date' }
     }
     case 'all': {
       return { label: 'All time' }
@@ -44,12 +56,11 @@ function getDateRange(range: string, start?: string, end?: string): DateRange {
       if (start && end) {
         return { start, end, label: 'Custom range' }
       }
-      return { start: toDateString(new Date(now.getFullYear(), now.getMonth(), 1)), end: toDateString(now), label: 'This month' }
+      return { start: toDateString(startOfMonth(now)), end: today, label: 'This month' }
     }
     case 'this_month':
     default: {
-      const startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-      return { start: toDateString(startDate), end: toDateString(now), label: 'This month' }
+      return { start: toDateString(startOfMonth(now)), end: today, label: 'This month' }
     }
   }
 }
@@ -71,6 +82,15 @@ async function getTransactions({
 }) {
   const debugDataFlow = process.env.DEBUG_DATA_FLOW === 'true'
   const dateRange = getDateRange(range, start, end)
+  const reviewedFilter =
+    reviewed === 'true' ? true : reviewed === 'false' ? false : null
+  const search = searchQuery?.trim() || null
+  const appliedFilters = {
+    accountId: accountId || null,
+    reviewed: reviewedFilter,
+    dateRange,
+    search,
+  }
 
   let query = supabaseAdmin
     .from('transactions')
@@ -79,6 +99,7 @@ async function getTransactions({
       account:accounts!transactions_account_id_fkey(name),
       transfer_to_account:accounts!transactions_transfer_to_account_id_fkey(name),
       category:categories!category_id(name, section),
+      subcategory:categories!subcategory_id(name, section),
       primary_category:categories!primary_category_id(name, section),
       ai_suggested:categories!ai_suggested_category(id, name, section)
     `)
@@ -87,11 +108,11 @@ async function getTransactions({
   if (accountId) {
     query = query.eq('account_id', accountId)
   }
-  if (reviewed === 'false') {
-    query = query.or('review_status.eq.needs_review,reviewed.eq.false')
+  if (reviewedFilter === false) {
+    query = query.eq('reviewed', false)
   }
-  if (reviewed === 'true') {
-    query = query.or('review_status.eq.approved,reviewed.eq.true')
+  if (reviewedFilter === true) {
+    query = query.eq('reviewed', true)
   }
   if (dateRange.start) {
     query = query.gte('date', dateRange.start)
@@ -99,8 +120,7 @@ async function getTransactions({
   if (dateRange.end) {
     query = query.lte('date', dateRange.end)
   }
-  if (searchQuery && searchQuery.trim().length > 0) {
-    const search = searchQuery.trim()
+  if (search) {
     query = query.or(
       `payee.ilike.%${search}%,payee_display.ilike.%${search}%,description.ilike.%${search}%,reference.ilike.%${search}%`
     )
@@ -115,7 +135,7 @@ async function getTransactions({
 
   if (debugDataFlow) {
     console.info('[data-flow] Transactions fetched', {
-      reviewedFilter: reviewed,
+      appliedFilters,
       range,
       dateRange,
       count: data?.length || 0,

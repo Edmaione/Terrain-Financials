@@ -50,6 +50,7 @@ export default function TransactionsFilters({
   const [customStart, setCustomStart] = useState(startDate || '')
   const [customEnd, setCustomEnd] = useState(endDate || '')
   const [searchValue, setSearchValue] = useState(query || '')
+  const debugDataFlow = process.env.NEXT_PUBLIC_DEBUG_DATA_FLOW === 'true'
 
   useEffect(() => {
     if (range === 'custom') {
@@ -113,6 +114,13 @@ export default function TransactionsFilters({
         params.set(key, value)
       }
     })
+
+    if (debugDataFlow) {
+      console.info('[data-flow] Transactions filters updated', {
+        updates,
+        params: params.toString(),
+      })
+    }
 
     router.push(`${pathname}?${params.toString()}`)
   }
