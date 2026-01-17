@@ -4,8 +4,10 @@ import CSVUploader from '@/components/CSVUploader'
 import { resolveAccountSelection } from '@/lib/accounts'
 import PageHeader from '@/components/PageHeader'
 import AlertBanner from '@/components/AlertBanner'
-import { Card } from '@/components/ui/Card'
-import { buttonVariants } from '@/components/ui/Button'
+import { Button } from '@/design-system/components/Button'
+import { Card } from '@/design-system/components/Card'
+import { colors } from '@/design-system/tokens'
+import { tokenVar } from '@/design-system/utils'
 
 export default async function UploadPage({
   searchParams,
@@ -39,22 +41,37 @@ export default async function UploadPage({
         title="Upload transactions"
         description="Import CSV files from your bank to keep transactions up to date."
         actions={(
-          <Link href="/transactions?reviewed=false" className={buttonVariants({ variant: 'secondary' })}>
+          <Button as={Link} href="/transactions?reviewed=false" variant="secondary" size="sm">
             Review unreviewed
-          </Link>
+          </Button>
         )}
       />
 
-      <Card className="max-w-4xl p-5">
+      <Card className="max-w-4xl" padding={5}>
         <CSVUploader
           accounts={accounts}
           selectedAccountId={selectedAccount?.id ?? null}
         />
       </Card>
 
-      <Card className="max-w-4xl border border-slate-200 bg-slate-50 p-5">
-        <h3 className="mb-2 text-sm font-semibold text-slate-900">Tips for uploading</h3>
-        <ul className="space-y-1 list-inside list-disc text-sm text-slate-600">
+      <Card
+        className="max-w-4xl border"
+        padding={5}
+        style={{
+          borderColor: tokenVar('gray-200', colors.gray[200]),
+          backgroundColor: tokenVar('gray-100', colors.gray[100]),
+        }}
+      >
+        <h3
+          className="mb-2 text-sm font-semibold"
+          style={{ color: tokenVar('gray-900', colors.gray[900]) }}
+        >
+          Tips for uploading
+        </h3>
+        <ul
+          className="list-inside list-disc text-sm"
+          style={{ color: tokenVar('gray-600', colors.gray[600]) }}
+        >
           <li>You can upload multiple CSV files at once.</li>
           <li>The system auto-detects your bank format.</li>
           <li>Duplicate transactions are automatically filtered out.</li>
