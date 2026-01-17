@@ -162,11 +162,11 @@ export default function TransactionsFilters({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => router.refresh()} className="text-slate-700">
+          <Button variant="secondary" size="sm" onClick={() => router.refresh()}>
             <IconRefresh className="h-4 w-4" />
             Refresh
           </Button>
-          <Button variant="ghost" size="sm" onClick={clearFilters} className="text-slate-700">
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
             Clear filters
           </Button>
           <span className="text-xs text-slate-500">Updated {lastUpdated}</span>

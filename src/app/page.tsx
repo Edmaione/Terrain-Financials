@@ -124,13 +124,13 @@ export default async function Dashboard() {
         description="Financial overview with current cash, monthly performance, and review queue."
         actions={(
           <>
-            <Link href="/transactions" className={buttonVariants({ variant: 'primary', className: 'text-white' })}>
+            <Link href="/transactions" className={buttonVariants({ variant: 'primary' })}>
               Review transactions
             </Link>
-            <Link href="/upload" className={buttonVariants({ variant: 'secondary', className: 'text-slate-700' })}>
+            <Link href="/upload" className={buttonVariants({ variant: 'secondary' })}>
               Upload CSV
             </Link>
-            <Link href="/reports" className={buttonVariants({ variant: 'ghost', className: 'text-slate-700' })}>
+            <Link href="/reports" className={buttonVariants({ variant: 'ghost' })}>
               View reports
             </Link>
           </>
@@ -143,7 +143,7 @@ export default async function Dashboard() {
           title="Dashboard data is unavailable."
           message={data.error}
           actions={(
-            <Link href="/" className={buttonVariants({ variant: 'secondary', className: 'text-slate-700' })}>
+            <Link href="/" className={buttonVariants({ variant: 'secondary' })}>
               Retry loading
             </Link>
           )}
@@ -157,10 +157,10 @@ export default async function Dashboard() {
             Upload your first CSV file to start reviewing and categorizing transactions.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link href="/upload" className={buttonVariants({ variant: 'primary', className: 'text-white' })}>
+            <Link href="/upload" className={buttonVariants({ variant: 'primary' })}>
               Upload CSV
             </Link>
-            <Link href="/transactions" className={buttonVariants({ variant: 'secondary', className: 'text-slate-700' })}>
+            <Link href="/transactions" className={buttonVariants({ variant: 'secondary' })}>
               View transactions
             </Link>
           </div>
