@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { recordReviewAction } from '@/lib/review-actions';
 
 const ACTIONS = ['mark_reviewed', 'set_category', 'approve'] as const;
 
@@ -8,7 +9,7 @@ type BulkAction = (typeof ACTIONS)[number];
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { ids, action, categoryId } = body ?? {};
+    const { ids, action, categoryId, approvedBy } = body ?? {};
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ ok: false, error: 'Transaction IDs are required.' }, { status: 400 });
@@ -33,17 +34,29 @@ export async function POST(request: Request) {
     if (action === 'mark_reviewed') {
       updatePayload.reviewed = true;
       updatePayload.reviewed_at = now;
+      updatePayload.review_status = 'approved';
+      updatePayload.approved_at = now;
+      updatePayload.approved_by = approvedBy ?? 'bulk';
     }
 
     if (action === 'set_category') {
       updatePayload.category_id = categoryId;
+      updatePayload.primary_category_id = categoryId;
     }
 
     if (action === 'approve') {
       updatePayload.status = 'APPROVED';
       updatePayload.reviewed = true;
       updatePayload.reviewed_at = now;
+      updatePayload.review_status = 'approved';
+      updatePayload.approved_at = now;
+      updatePayload.approved_by = approvedBy ?? 'bulk';
     }
+
+    const { data: existingTransactions } = await supabaseAdmin
+      .from('transactions')
+      .select('id, category_id, primary_category_id, review_status')
+      .in('id', ids);
 
     const { data, error } = await supabaseAdmin
       .from('transactions')
@@ -63,6 +76,37 @@ export async function POST(request: Request) {
       action,
       count: data?.length || 0,
     });
+
+    if (action === 'approve' || action === 'mark_reviewed' || action === 'set_category') {
+      const existingMap = new Map(
+        (existingTransactions || []).map((row) => [row.id, row])
+      );
+      await Promise.all(
+        (data || []).map((row) => {
+          const before = existingMap.get(row.id);
+          if (!before) return Promise.resolve();
+          return recordReviewAction({
+            transactionId: row.id,
+            action: action === 'set_category' ? 'reclass' : 'approve',
+            actor: approvedBy ?? 'bulk',
+            before: {
+              review_status: before.review_status,
+              category_id: before.primary_category_id ?? before.category_id,
+            },
+            after: {
+              review_status:
+                action === 'set_category'
+                  ? before.review_status ?? 'needs_review'
+                  : 'approved',
+              category_id:
+                action === 'set_category'
+                  ? categoryId
+                  : before.primary_category_id ?? before.category_id,
+            },
+          });
+        })
+      );
+    }
 
     return NextResponse.json({ ok: true, data: { ids: data?.map((row) => row.id) || [] } });
   } catch (error) {

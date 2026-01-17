@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { recordReviewAction } from '@/lib/review-actions';
 
 export async function POST(
   request: NextRequest,
@@ -24,12 +25,19 @@ export async function POST(
       );
     }
 
+    const { data: existing } = await supabaseAdmin
+      .from('transactions')
+      .select('id, category_id, primary_category_id, review_status')
+      .eq('id', transactionId)
+      .single();
+
     // Update the transaction with category (but don't mark as reviewed)
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('transactions')
       .update({
         category_id,
         subcategory_id: subcategory_id || null,
+        primary_category_id: category_id,
         updated_at: new Date().toISOString(),
       })
       .eq('id', transactionId)
@@ -48,10 +56,23 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      data: updated,
-    });
+    if (updated && existing) {
+      await recordReviewAction({
+        transactionId,
+        action: 'reclass',
+        actor: 'manual',
+        before: {
+          review_status: existing.review_status,
+          category_id: existing.primary_category_id ?? existing.category_id,
+        },
+        after: {
+          review_status: existing.review_status ?? 'needs_review',
+          category_id,
+        },
+      });
+    }
+
+    return NextResponse.json({ ok: true, data: updated });
   } catch (error) {
     console.error('[API] Categorize transaction error:', error);
     return NextResponse.json(

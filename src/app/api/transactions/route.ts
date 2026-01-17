@@ -9,11 +9,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { createRuleFromApproval } from '@/lib/categorization-engine';
+import { recordReviewAction } from '@/lib/review-actions';
 
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const { id, category_id, subcategory_id, reviewed } = body;
+    const shouldReview = reviewed ?? true;
 
     if (!id) {
       return NextResponse.json(
@@ -25,7 +27,7 @@ export async function PATCH(request: NextRequest) {
     // Get the transaction to create a rule from it
     const { data: transaction, error: fetchError } = await supabaseAdmin
       .from('transactions')
-      .select('payee, description')
+      .select('id, payee, description, category_id, primary_category_id, review_status')
       .eq('id', id)
       .single();
 
@@ -38,13 +40,19 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Update the transaction
+    const now = new Date().toISOString();
     const { error } = await supabaseAdmin
       .from('transactions')
       .update({
         category_id: category_id || null,
         subcategory_id: subcategory_id || null,
-        reviewed: reviewed ?? true,
-        updated_at: new Date().toISOString(),
+        primary_category_id: category_id || null,
+        reviewed: shouldReview,
+        review_status: shouldReview ? 'approved' : 'needs_review',
+        reviewed_at: shouldReview ? now : null,
+        approved_at: shouldReview ? now : null,
+        approved_by: shouldReview ? 'legacy' : null,
+        updated_at: now,
       })
       .eq('id', id);
 
@@ -57,7 +65,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // If approved, create a rule for future transactions
-    if (reviewed && category_id && transaction) {
+    if (shouldReview && category_id && transaction) {
       await createRuleFromApproval(
         transaction.payee,
         transaction.description,
@@ -65,6 +73,23 @@ export async function PATCH(request: NextRequest) {
         subcategory_id
       ).catch((err) => {
         console.warn('[API] Rule creation failed (non-fatal):', err);
+      });
+    }
+
+    if (shouldReview && transaction) {
+      await recordReviewAction({
+        transactionId: transaction.id,
+        action:
+          category_id && category_id !== transaction.primary_category_id ? 'reclass' : 'approve',
+        actor: 'legacy',
+        before: {
+          review_status: transaction.review_status,
+          category_id: transaction.primary_category_id ?? transaction.category_id,
+        },
+        after: {
+          review_status: 'approved',
+          category_id: category_id ?? transaction.primary_category_id,
+        },
       });
     }
 

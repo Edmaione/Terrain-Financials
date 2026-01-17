@@ -25,7 +25,7 @@ async function getDashboardData() {
     const { count: unreviewedCount, error: unreviewedError } = await supabaseAdmin
       .from('transactions')
       .select('*', { count: 'exact', head: true })
-      .eq('reviewed', false)
+      .or('review_status.eq.needs_review,reviewed.eq.false')
 
     if (unreviewedError) {
       console.error('[dashboard] Failed to fetch unreviewed count', unreviewedError)

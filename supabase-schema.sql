@@ -10,6 +10,32 @@ CREATE TYPE account_type AS ENUM ('checking', 'savings', 'credit_card', 'loan', 
 -- Transaction status enum
 CREATE TYPE transaction_status AS ENUM ('SETTLED', 'PENDING', 'APPROVED', 'CANCELLED');
 
+-- Ledger-grade transaction status enum
+CREATE TYPE txn_status AS ENUM ('draft', 'posted', 'void');
+
+-- Review status enum
+CREATE TYPE review_status AS ENUM ('needs_review', 'approved');
+
+-- Source system enum
+CREATE TYPE source_system AS ENUM (
+    'manual',
+    'relay',
+    'stripe',
+    'gusto',
+    'amex',
+    'us_bank',
+    'citi',
+    'dcu',
+    'sheffield',
+    'other'
+);
+
+-- Account class enum
+CREATE TYPE account_class AS ENUM ('asset', 'liability', 'equity', 'income', 'expense');
+
+-- Normal balance enum
+CREATE TYPE normal_balance AS ENUM ('debit', 'credit');
+
 -- Category types enum
 CREATE TYPE category_type AS ENUM ('income', 'cogs', 'expense', 'other_income', 'other_expense');
 
@@ -29,6 +55,9 @@ CREATE TABLE accounts (
     opening_balance DECIMAL(12,2) DEFAULT 0,
     current_balance DECIMAL(12,2) DEFAULT 0,
     notes TEXT,
+    account_class account_class, -- asset/liability/etc
+    normal_balance normal_balance,
+    terrain_account_code TEXT, -- Terrain ledger account mapping
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -45,6 +74,9 @@ CREATE TABLE categories (
     is_tax_deductible BOOLEAN DEFAULT true,
     qb_equivalent TEXT, -- Maps to QuickBooks category name for migration
     sort_order INTEGER DEFAULT 0,
+    account_class account_class,
+    normal_balance normal_balance,
+    terrain_category_code TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -62,6 +94,35 @@ CREATE TABLE jobs (
     actual_revenue DECIMAL(12,2) DEFAULT 0,
     actual_expenses DECIMAL(12,2) DEFAULT 0,
     notes TEXT,
+    source source_system,
+    source_id TEXT,
+    source_hash TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================================
+-- PAYEES TABLE
+-- ============================================================================
+CREATE TABLE payees (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    display_name TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================================
+-- IMPORT BATCHES TABLE
+-- ============================================================================
+CREATE TABLE import_batches (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    source source_system DEFAULT 'manual',
+    source_id TEXT,
+    file_name TEXT,
+    metadata JSONB,
+    created_by TEXT,
+    imported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -74,20 +135,31 @@ CREATE TABLE transactions (
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     date DATE NOT NULL,
     payee TEXT NOT NULL,
+    payee_id UUID REFERENCES payees(id) ON DELETE SET NULL,
+    payee_original TEXT,
+    payee_display TEXT,
     description TEXT,
     amount DECIMAL(12,2) NOT NULL, -- Negative for expenses, positive for income
     category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     subcategory_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    primary_category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     job_id UUID REFERENCES jobs(id) ON DELETE SET NULL,
     
     -- Transfer tracking
     is_transfer BOOLEAN DEFAULT false,
     transfer_to_account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    transfer_group_id UUID,
+    is_split BOOLEAN DEFAULT false,
     
     -- Transaction metadata
     payment_method TEXT, -- "ACH", "Check", "Card", "Wire", etc.
     reference TEXT, -- Check number, invoice number, confirmation code
     status transaction_status DEFAULT 'SETTLED',
+    txn_status txn_status DEFAULT 'posted',
+    source source_system DEFAULT 'manual',
+    source_id TEXT,
+    source_hash TEXT,
+    posted_at DATE,
     
     -- Document storage
     receipt_url TEXT, -- Link to Supabase Storage
@@ -97,11 +169,42 @@ CREATE TABLE transactions (
     ai_confidence DECIMAL(3,2), -- 0.00 to 1.00
     reviewed BOOLEAN DEFAULT false,
     reviewed_at TIMESTAMP WITH TIME ZONE,
+    review_status review_status DEFAULT 'needs_review',
+    approved_at TIMESTAMP WITH TIME ZONE,
+    approved_by TEXT,
     
     -- Notes and audit
     notes TEXT,
     raw_csv_data JSONB, -- Original CSV row for reference
+    import_batch_id UUID REFERENCES import_batches(id) ON DELETE SET NULL,
     
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================================
+-- REVIEW ACTIONS TABLE
+-- ============================================================================
+CREATE TABLE review_actions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    before_json JSONB,
+    after_json JSONB,
+    actor TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================================
+-- TRANSACTION SPLITS TABLE
+-- ============================================================================
+CREATE TABLE transaction_splits (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    memo TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -140,6 +243,10 @@ CREATE TABLE payroll_entries (
     employee_name TEXT,
     department TEXT, -- 'technician' or 'admin'
     raw_data JSONB, -- Full Gusto export data
+    source source_system,
+    source_id TEXT,
+    source_hash TEXT,
+    import_batch_id UUID REFERENCES import_batches(id) ON DELETE SET NULL,
     imported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -159,6 +266,10 @@ CREATE TABLE stripe_payments (
     job_id UUID REFERENCES jobs(id) ON DELETE SET NULL,
     status TEXT,
     raw_data JSONB,
+    source source_system,
+    source_id TEXT,
+    source_hash TEXT,
+    import_batch_id UUID REFERENCES import_batches(id) ON DELETE SET NULL,
     synced_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -171,8 +282,15 @@ CREATE INDEX idx_transactions_account ON transactions(account_id);
 CREATE INDEX idx_transactions_category ON transactions(category_id);
 CREATE INDEX idx_transactions_payee ON transactions(payee);
 CREATE INDEX idx_transactions_reviewed ON transactions(reviewed) WHERE reviewed = false;
+CREATE INDEX idx_transactions_source_id ON transactions(source, source_id);
+CREATE INDEX idx_transactions_source_hash ON transactions(source_hash);
+CREATE INDEX idx_transactions_review_status ON transactions(review_status);
+CREATE INDEX idx_transactions_primary_category ON transactions(primary_category_id);
 CREATE INDEX idx_categorization_rules_payee ON categorization_rules(payee_pattern);
 CREATE INDEX idx_stripe_payments_date ON stripe_payments(payment_date DESC);
+CREATE UNIQUE INDEX idx_payees_name ON payees(LOWER(name));
+CREATE INDEX idx_review_actions_transaction ON review_actions(transaction_id);
+CREATE INDEX idx_transaction_splits_transaction ON transaction_splits(transaction_id);
 
 -- ============================================================================
 -- UPDATE TRIGGERS
@@ -195,6 +313,15 @@ CREATE TRIGGER update_transactions_updated_at BEFORE UPDATE ON transactions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_payees_updated_at BEFORE UPDATE ON payees
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_import_batches_updated_at BEFORE UPDATE ON import_batches
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_transaction_splits_updated_at BEFORE UPDATE ON transaction_splits
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================

@@ -79,6 +79,7 @@ async function getTransactions({
       account:accounts!transactions_account_id_fkey(name),
       transfer_to_account:accounts!transactions_transfer_to_account_id_fkey(name),
       category:categories!category_id(name, section),
+      primary_category:categories!primary_category_id(name, section),
       ai_suggested:categories!ai_suggested_category(id, name, section)
     `)
     .order('date', { ascending: false })
@@ -87,10 +88,10 @@ async function getTransactions({
     query = query.eq('account_id', accountId)
   }
   if (reviewed === 'false') {
-    query = query.eq('reviewed', false)
+    query = query.or('review_status.eq.needs_review,reviewed.eq.false')
   }
   if (reviewed === 'true') {
-    query = query.eq('reviewed', true)
+    query = query.or('review_status.eq.approved,reviewed.eq.true')
   }
   if (dateRange.start) {
     query = query.gte('date', dateRange.start)
@@ -100,7 +101,9 @@ async function getTransactions({
   }
   if (searchQuery && searchQuery.trim().length > 0) {
     const search = searchQuery.trim()
-    query = query.or(`payee.ilike.%${search}%,description.ilike.%${search}%,reference.ilike.%${search}%`)
+    query = query.or(
+      `payee.ilike.%${search}%,payee_display.ilike.%${search}%,description.ilike.%${search}%,reference.ilike.%${search}%`
+    )
   }
 
   const { data, error } = await query

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createRuleFromApproval } from '@/lib/categorization-engine'
+import { recordReviewAction } from '@/lib/review-actions'
 
 export const runtime = 'nodejs'
 
@@ -19,14 +20,15 @@ export async function POST(
       )
     }
 
-    const { categoryId = undefined, markReviewed = true } = body as {
+    const { categoryId = undefined, markReviewed = true, approvedBy } = body as {
       categoryId?: string | null
       markReviewed?: boolean
+      approvedBy?: string | null
     }
 
     const { data: transaction, error: fetchError } = await supabaseAdmin
       .from('transactions')
-      .select('id, payee, description, status')
+      .select('id, payee, description, status, review_status, category_id, primary_category_id')
       .eq('id', transactionId)
       .single()
 
@@ -44,10 +46,14 @@ export async function POST(
     const updatePayload: Record<string, unknown> = {}
     if (hasCategoryId) {
       updatePayload.category_id = categoryId
+      updatePayload.primary_category_id = categoryId
     }
     if (shouldReview) {
       updatePayload.reviewed = true
       updatePayload.reviewed_at = new Date().toISOString()
+      updatePayload.review_status = 'approved'
+      updatePayload.approved_at = new Date().toISOString()
+      updatePayload.approved_by = approvedBy ?? 'manual'
     }
     if (transaction.status === 'PENDING') {
       updatePayload.status = 'APPROVED'
@@ -78,6 +84,26 @@ export async function POST(
       } catch (ruleError) {
         console.warn('[API] Rule creation failed (non-fatal):', ruleError)
       }
+    }
+
+    if (shouldReview) {
+      const action =
+        hasCategoryId && categoryId && categoryId !== transaction.primary_category_id
+          ? 'reclass'
+          : 'approve'
+      await recordReviewAction({
+        transactionId,
+        action,
+        actor: approvedBy ?? 'manual',
+        before: {
+          review_status: transaction.review_status,
+          category_id: transaction.primary_category_id ?? transaction.category_id,
+        },
+        after: {
+          review_status: 'approved',
+          category_id: categoryId ?? transaction.primary_category_id ?? transaction.category_id,
+        },
+      })
     }
 
     return NextResponse.json({ ok: true, data: updated })

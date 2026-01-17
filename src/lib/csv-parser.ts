@@ -89,6 +89,7 @@ function parseRelayFormat(rows: CSVRow[]): ParsedTransaction[] {
       amount,
       reference: row.Reference || '',
       status: (row.Status?.toUpperCase() as TransactionStatus) || 'SETTLED',
+      source_system: 'relay',
       account_number: row['Account #'] || undefined,
       balance: row.Balance ? parseFloat(row.Balance) : undefined,
       raw_data: row,
@@ -111,6 +112,7 @@ function parseChaseFormat(rows: CSVRow[]): ParsedTransaction[] {
       amount,
       reference: row['Check or Slip #'] || '',
       status: 'SETTLED' as TransactionStatus,
+      source_system: 'other',
       balance: row.Balance ? parseFloat(row.Balance) : undefined,
       raw_data: row,
     };
@@ -132,6 +134,7 @@ function parseBofAFormat(rows: CSVRow[]): ParsedTransaction[] {
       amount,
       reference: row['Reference Number'] || '',
       status: 'SETTLED' as TransactionStatus,
+      source_system: 'other',
       balance: row['Running Balance'] ? parseFloat(row['Running Balance']) : undefined,
       raw_data: row,
     };
@@ -179,6 +182,7 @@ function parseGenericFormat(rows: CSVRow[]): ParsedTransaction[] {
       amount,
       reference: '',
       status: 'SETTLED' as TransactionStatus,
+      source_system: 'other',
       raw_data: row,
     };
   });
