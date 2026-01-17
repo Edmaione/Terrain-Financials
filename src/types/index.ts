@@ -19,6 +19,7 @@ export type AccountClass = 'asset' | 'liability' | 'equity' | 'income' | 'expens
 export type NormalBalance = 'debit' | 'credit';
 export type CategoryType = 'income' | 'cogs' | 'expense' | 'other_income' | 'other_expense';
 export type JobStatus = 'active' | 'completed' | 'cancelled';
+export type ImportStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 export interface Account {
   id: string;
@@ -98,6 +99,9 @@ export interface Transaction {
   payee_original?: string | null;
   payee_display?: string | null;
   import_batch_id?: string | null;
+  import_id?: string | null;
+  import_row_number?: number | null;
+  import_row_hash?: string | null;
   receipt_url?: string;
   ai_suggested_category?: string;
   ai_confidence?: number;
@@ -227,6 +231,27 @@ export interface ImportBatch {
   imported_at: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface ImportRecord {
+  id: string;
+  account_id: string;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  file_name?: string | null;
+  file_size?: number | null;
+  file_sha256?: string | null;
+  status: ImportStatus;
+  canceled_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  total_rows?: number | null;
+  processed_rows?: number | null;
+  inserted_rows?: number | null;
+  skipped_rows?: number | null;
+  error_rows?: number | null;
+  last_error?: string | null;
 }
 
 export interface ReviewAction {
