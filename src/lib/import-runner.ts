@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { parseCSVText } from '@/lib/csv-parser'
 import { prepareCsvTransactions, resolveTransactionFields, type PreparedTransaction } from '@/lib/csv-importer'
 import { planCsvImport } from '@/lib/import-idempotency'
-import { transformImportRows } from '@/lib/import-transform'
+import { transformImportRows } from '@/lib/import/transform-to-canonical'
 import { validateMapping } from '@/lib/import-mapping'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { AmountStrategy, ImportFieldMapping, ParsedTransaction } from '@/types'
@@ -350,7 +350,7 @@ export async function runCsvImport({
     if (shouldLogDescriptionStats) {
       console.info('[ingest] Description mapping summary', {
         importId,
-        totalRows: parsedTransactions.length,
+        totalRows: parsedCsv.rows.length,
         descriptionPopulated,
         descriptionMissing,
       })

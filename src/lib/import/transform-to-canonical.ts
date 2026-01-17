@@ -1,0 +1,154 @@
+import {
+  AmountStrategy,
+  CSVRow,
+  ImportFieldMapping,
+  ParsedTransaction,
+  TransactionStatus,
+} from '@/types'
+
+export type TransformError = {
+  rowNumber: number
+  field: 'date' | 'amount' | 'inflow' | 'outflow'
+  message: string
+}
+
+const VALID_STATUSES = new Set<TransactionStatus>([
+  'SETTLED',
+  'PENDING',
+  'APPROVED',
+  'CANCELLED',
+])
+
+function normalizeValue(value?: string | null): string | null {
+  if (value === null || value === undefined) return null
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+function parseDate(dateStr: string): string {
+  const parsed = new Date(dateStr)
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0]
+  }
+
+  const parts = dateStr.split('/')
+  if (parts.length === 3) {
+    const [month, day, year] = parts
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  }
+
+  throw new Error(`Unable to parse date: ${dateStr}`)
+}
+
+function parseAmount(amountStr: string): number {
+  let cleaned = amountStr.replace(/[$,\s]/g, '')
+  if (cleaned.startsWith('(') && cleaned.endsWith(')')) {
+    cleaned = `-${cleaned.slice(1, -1)}`
+  }
+
+  const parsed = Number.parseFloat(cleaned)
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Unable to parse amount: ${amountStr}`)
+  }
+
+  return parsed
+}
+
+function parseStatus(value?: string | null): TransactionStatus | undefined {
+  const normalized = normalizeValue(value)
+  if (!normalized) return undefined
+  const upper = normalized.toUpperCase()
+  return VALID_STATUSES.has(upper as TransactionStatus) ? (upper as TransactionStatus) : undefined
+}
+
+function readMappedValue(row: CSVRow, key: string | null) {
+  if (!key) return null
+  return row[key]
+}
+
+export type TransformedImportRow = ParsedTransaction & {
+  rowNumber: number
+}
+
+export function transformImportRows({
+  rows,
+  mapping,
+  amountStrategy,
+  sourceSystem = 'manual',
+}: {
+  rows: CSVRow[]
+  mapping: ImportFieldMapping
+  amountStrategy: AmountStrategy
+  sourceSystem?: ParsedTransaction['source_system']
+}) {
+  const errors: TransformError[] = []
+  const transactions: TransformedImportRow[] = []
+
+  for (const [index, row] of rows.entries()) {
+    const rowNumber = index + 1
+    const dateRaw = normalizeValue(readMappedValue(row, mapping.date))
+    if (!dateRaw) {
+      errors.push({ rowNumber, field: 'date', message: 'Date value is missing.' })
+      continue
+    }
+
+    let date: string
+    try {
+      date = parseDate(dateRaw)
+    } catch (error) {
+      errors.push({
+        rowNumber,
+        field: 'date',
+        message: error instanceof Error ? error.message : 'Unable to parse date.',
+      })
+      continue
+    }
+
+    let amount = 0
+    try {
+      if (amountStrategy === 'signed') {
+        const amountRaw = normalizeValue(readMappedValue(row, mapping.amount))
+        if (!amountRaw) {
+          throw new Error('Amount value is missing.')
+        }
+        amount = parseAmount(amountRaw)
+      } else {
+        const inflowRaw = normalizeValue(readMappedValue(row, mapping.inflow))
+        const outflowRaw = normalizeValue(readMappedValue(row, mapping.outflow))
+
+        const inflow = inflowRaw ? parseAmount(inflowRaw) : 0
+        const outflow = outflowRaw ? parseAmount(outflowRaw) : 0
+        amount = inflow - outflow
+      }
+    } catch (error) {
+      errors.push({
+        rowNumber,
+        field: amountStrategy === 'signed' ? 'amount' : 'inflow',
+        message: error instanceof Error ? error.message : 'Unable to parse amount.',
+      })
+      continue
+    }
+
+    const payee = normalizeValue(readMappedValue(row, mapping.payee))
+    const description = normalizeValue(readMappedValue(row, mapping.description))
+    const memo = normalizeValue(readMappedValue(row, mapping.memo))
+    const reference = normalizeValue(readMappedValue(row, mapping.reference))
+    const resolvedDescription = description ?? memo ?? reference ?? payee ?? null
+    const resolvedPayee = payee ?? resolvedDescription ?? 'Unknown'
+
+    transactions.push({
+      date,
+      payee: resolvedPayee,
+      description: resolvedDescription,
+      memo,
+      amount,
+      reference,
+      status: parseStatus(readMappedValue(row, mapping.status)) ?? 'SETTLED',
+      source_system: sourceSystem,
+      raw_data: row,
+      rowNumber,
+    })
+  }
+
+  return { transactions, errors }
+}
