@@ -271,14 +271,19 @@ export default function TransactionTable({
           <TableBody>
             {transactions.map((transaction) => {
               const isReviewed =
-                transaction.review_status
-                  ? transaction.review_status === 'approved'
-                  : Boolean(transaction.reviewed)
+                Boolean(transaction.reviewed) || transaction.review_status === 'approved'
               const isPositive = transaction.amount >= 0
               const accountName = transaction.account?.name || 'Unassigned'
               const transferName = transaction.transfer_to_account?.name
               const suggestedCategoryId =
                 transaction.ai_suggested_category || transaction.ai_suggested?.id || null
+              const resolvedCategory =
+                transaction.primary_category ||
+                transaction.category ||
+                transaction.subcategory ||
+                null
+              const categoryName = resolvedCategory?.name || 'Needs categorization'
+              const categorySection = resolvedCategory?.section || null
               const isCategoryPickerOpen = openCategoryFor === transaction.id
               return (
                 <TableRow
@@ -318,13 +323,11 @@ export default function TransactionTable({
                     {isReviewed ? (
                       <div>
                         <div className="font-medium text-slate-900">
-                          {transaction.primary_category?.name ||
-                            transaction.category?.name ||
-                            'Uncategorized'}
+                          {categoryName}
                         </div>
-                        {(transaction.primary_category?.section || transaction.category?.section) && (
+                        {categorySection && categoryName !== 'Needs categorization' && (
                           <div className="text-xs text-slate-500">
-                            {transaction.primary_category?.section || transaction.category?.section}
+                            {categorySection}
                           </div>
                         )}
                       </div>
