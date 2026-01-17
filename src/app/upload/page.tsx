@@ -45,16 +45,16 @@ export default async function UploadPage({
         )}
       />
 
-      <Card className="max-w-4xl p-6">
+      <Card className="max-w-4xl p-5">
         <CSVUploader
           accounts={accounts}
           selectedAccountId={selectedAccount?.id ?? null}
         />
       </Card>
 
-      <Card className="max-w-4xl border border-slate-200 bg-slate-50 p-6">
-        <h3 className="text-sm font-semibold text-slate-900 mb-2">Tips for uploading</h3>
-        <ul className="text-sm text-slate-600 space-y-1 list-disc list-inside">
+      <Card className="max-w-4xl border border-slate-200 bg-slate-50 p-5">
+        <h3 className="mb-2 text-sm font-semibold text-slate-900">Tips for uploading</h3>
+        <ul className="space-y-1 list-inside list-disc text-sm text-slate-600">
           <li>You can upload multiple CSV files at once.</li>
           <li>The system auto-detects your bank format.</li>
           <li>Duplicate transactions are automatically filtered out.</li>

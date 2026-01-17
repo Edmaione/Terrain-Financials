@@ -8,7 +8,7 @@ export default function Loading() {
         <Skeleton className="h-9 w-40" />
         <Skeleton className="h-4 w-72" />
       </div>
-      <Card className="p-6">
+      <Card className="p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Skeleton className="h-4 w-32" />
@@ -17,7 +17,7 @@ export default function Loading() {
           <Skeleton className="h-9 w-28" />
         </div>
       </Card>
-      <Card className="p-6">
+      <Card className="p-5">
         <Skeleton className="h-8 w-full" />
         <div className="mt-4 space-y-2">
           {Array.from({ length: 4 }).map((_, index) => (

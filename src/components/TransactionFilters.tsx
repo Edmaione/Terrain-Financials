@@ -53,7 +53,7 @@ export default function TransactionFilters({
   ]
 
   return (
-    <Card className="p-6">
+    <Card className="p-5">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600">
           <IconFilter className="h-5 w-5" />

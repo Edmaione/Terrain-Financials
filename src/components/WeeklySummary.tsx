@@ -5,14 +5,14 @@ import { IconCalendar } from '@/components/ui/icons'
 
 export default function WeeklySummary({ summary }: { summary: WeeklySummaryType }) {
   return (
-    <Card className="p-6">
+    <Card className="p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700">
             <IconCalendar className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Weekly Summary</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Weekly Summary</h2>
             <p className="text-xs text-slate-500">Last 7 days snapshot</p>
           </div>
         </div>

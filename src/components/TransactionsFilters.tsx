@@ -150,7 +150,7 @@ export default function TransactionsFilters({
   }
 
   return (
-    <Card className="sticky top-20 z-20 p-6">
+    <Card className="sticky top-6 z-10">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600">
@@ -162,13 +162,34 @@ export default function TransactionsFilters({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-lg border border-slate-200 bg-white p-1">
+            {REVIEW_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleReviewChange(option.value)}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-xs font-semibold text-slate-600 transition',
+                  activeReviewed === option.value
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'hover:bg-slate-50'
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <Button variant="secondary" size="sm" onClick={() => router.refresh()}>
             <IconRefresh className="h-4 w-4" />
             Refresh
           </Button>
-          <Button variant="ghost" size="sm" onClick={clearFilters}>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+          >
             Clear filters
-          </Button>
+          </button>
           <span className="text-xs text-slate-500">Updated {lastUpdated}</span>
         </div>
       </div>
@@ -226,33 +247,21 @@ export default function TransactionsFilters({
           {RANGE_OPTIONS.map((option) => (
             <Button
               key={option.value}
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => handleRangeChange(option.value)}
               className={cn(
-                'rounded-full border border-slate-200 bg-white text-slate-600',
-                range === option.value && 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
+                'border border-slate-200 bg-white text-slate-600',
+                range === option.value && 'border-emerald-600 bg-emerald-50 text-emerald-700'
               )}
             >
               {option.label}
             </Button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {REVIEW_OPTIONS.map((option) => (
-            <Button
-              key={option.value}
-              variant="outline"
-              size="sm"
-              onClick={() => handleReviewChange(option.value)}
-              className={cn(
-                'rounded-full border border-slate-200 bg-white text-slate-600',
-                activeReviewed === option.value && 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
-              )}
-            >
-              {option.label}
-            </Button>
-          ))}
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <IconFilter className="h-4 w-4 text-slate-400" />
+          Advanced filters
         </div>
       </div>
 

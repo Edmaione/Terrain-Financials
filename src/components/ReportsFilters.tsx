@@ -72,7 +72,7 @@ export default function ReportsFilters({
   }
 
   return (
-    <Card className="p-6">
+    <Card>
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600">
           <IconCalendar className="h-5 w-5" />
@@ -83,7 +83,7 @@ export default function ReportsFilters({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)]">
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(260px,1fr)]">
         <div>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="reports-account">
             Account
@@ -112,12 +112,12 @@ export default function ReportsFilters({
             {RANGE_OPTIONS.map((option) => (
               <Button
                 key={option.value}
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={() => handleRangeChange(option.value)}
                 className={cn(
-                  'rounded-full border border-slate-200 bg-white text-slate-600',
-                  range === option.value && 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
+                  'border border-slate-200 bg-white text-slate-600',
+                  range === option.value && 'border-emerald-600 bg-emerald-50 text-emerald-700'
                 )}
               >
                 {option.label}

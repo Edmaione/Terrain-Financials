@@ -11,7 +11,7 @@ export default function Loading() {
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <Card key={index} className="p-6">
+          <Card key={index} className="p-5">
             <Skeleton className="h-10 w-10 rounded-full" />
             <Skeleton className="mt-4 h-4 w-24" />
             <Skeleton className="mt-4 h-8 w-32" />
@@ -19,7 +19,7 @@ export default function Loading() {
           </Card>
         ))}
       </div>
-      <Card className="p-6">
+      <Card className="p-5">
         <Skeleton className="h-4 w-32" />
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           {Array.from({ length: 3 }).map((_, index) => (

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Badge } from '@/components/ui/Badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { useToast } from '@/components/ui/Toast'
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -178,9 +179,9 @@ export default function TransactionTable({
   }
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden p-0">
       {selectedIds.length > 0 && (
-        <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+        <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-semibold text-slate-900">
@@ -233,9 +234,9 @@ export default function TransactionTable({
         </div>
       )}
 
-      <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">Transactions</h2>
+          <h2 className="text-xl font-semibold text-slate-900">Transactions</h2>
           <p className="text-xs text-slate-500">
             Showing {transactions.length} · {filterSummary}
           </p>
@@ -247,28 +248,28 @@ export default function TransactionTable({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full">
-          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-6 py-3 text-left">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="w-12">
                 <input
                   type="checkbox"
                   checked={allSelected}
                   onChange={toggleSelectAll}
                   aria-label="Select all transactions"
                 />
-              </th>
-              <th className="px-6 py-3 text-left">Date</th>
-              <th className="px-6 py-3 text-left">Description</th>
-              <th className="px-6 py-3 text-left">Account</th>
-              <th className="px-6 py-3 text-left">Category</th>
-              <th className="px-6 py-3 text-right">Amount</th>
-              <th className="px-6 py-3 text-center">Status</th>
-              <th className="px-6 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white">
-            {transactions.map((transaction, index) => {
+              </TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Account</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+              <TableHead className="text-center">Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {transactions.map((transaction) => {
               const isPositive = transaction.amount >= 0
               const accountName = transaction.account?.name || 'Unassigned'
               const transferName = transaction.transfer_to_account?.name
@@ -276,38 +277,38 @@ export default function TransactionTable({
                 transaction.ai_suggested_category || transaction.ai_suggested?.id || null
               const isCategoryPickerOpen = openCategoryFor === transaction.id
               return (
-                <tr
+                <TableRow
                   key={transaction.id}
-                  className={`border-b border-slate-100 text-sm text-slate-700 hover:bg-slate-50 ${
-                    index % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                  } ${!transaction.reviewed ? 'ring-1 ring-inset ring-amber-100' : ''} focus-within:bg-slate-50`}
+                  className={`${
+                    !transaction.reviewed ? 'bg-amber-50/40' : ''
+                  } focus-within:bg-slate-50`}
                 >
-                  <td className="px-6 py-4 align-top">
+                  <TableCell className="align-top">
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(transaction.id)}
                       onChange={() => toggleSelect(transaction.id)}
                       aria-label={`Select transaction ${transaction.payee}`}
                     />
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-slate-900">
                     {transaction.date ? dateFormatter.format(new Date(transaction.date)) : '--'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-900">
+                  </TableCell>
+                  <TableCell className="text-slate-900">
                     <div className="font-medium">{transaction.payee || 'Unknown payee'}</div>
                     <div className="text-xs text-slate-500">
                       {transaction.description || 'No description'}
                     </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-900">
+                  </TableCell>
+                  <TableCell className="text-slate-900">
                     <div className="font-medium">{accountName}</div>
                     {transferName && (
                       <div className="mt-1 text-xs text-slate-500">
                         Transfer: {accountName} to {transferName}
                       </div>
                     )}
-                  </td>
-                  <td className="px-6 py-4 text-sm">
+                  </TableCell>
+                  <TableCell>
                     {transaction.reviewed ? (
                       <div>
                         <div className="font-medium text-slate-900">
@@ -337,22 +338,24 @@ export default function TransactionTable({
                           </button>
                         )}
                         {transaction.ai_confidence && (
-                          <div className="text-xs text-slate-500">
-                            {Math.round(transaction.ai_confidence * 100)}% confidence
+                          <div className="mt-2">
+                            <Badge variant="info">
+                              AI {Math.round(transaction.ai_confidence * 100)}% confidence
+                            </Badge>
                           </div>
                         )}
                       </div>
                     )}
-                  </td>
-                  <td
-                    className={`px-6 py-4 whitespace-nowrap text-sm font-semibold text-right ${
+                  </TableCell>
+                  <TableCell
+                    className={`whitespace-nowrap text-right font-semibold ${
                       isPositive ? 'text-emerald-600' : 'text-rose-600'
                     }`}
                   >
                     {isPositive ? '+' : ''}
                     {currencyFormatter.format(Math.abs(transaction.amount || 0))}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center">
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-center">
                     <div className="flex flex-col items-center gap-2">
                       {transaction.is_transfer && <Badge variant="info">Transfer</Badge>}
                       {transaction.reviewed ? (
@@ -361,8 +364,8 @@ export default function TransactionTable({
                         <Badge variant="warning">Pending</Badge>
                       )}
                     </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-right font-medium">
                     {!transaction.reviewed && (
                       <div className="flex flex-col items-end gap-2">
                         {isCategoryPickerOpen ? (
@@ -453,12 +456,12 @@ export default function TransactionTable({
                         Approved
                       </div>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               )
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </Card>
   )

@@ -151,7 +151,7 @@ export default async function Dashboard() {
       )}
 
       {data.transactionCount === 0 ? (
-        <Card className="border-dashed border-slate-200 p-8">
+        <Card className="border-dashed border-slate-200 p-5">
           <h2 className="text-lg font-semibold text-slate-900">No transactions yet</h2>
           <p className="mt-2 text-sm text-slate-500">
             Upload your first CSV file to start reviewing and categorizing transactions.
@@ -180,7 +180,7 @@ export default async function Dashboard() {
       )}
 
       {data.unreviewedCount > 0 && (
-        <Card className="border-l-4 border-amber-400 p-6">
+        <Card className="border-l-4 border-amber-400 p-5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
               ⚠️
