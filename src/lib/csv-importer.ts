@@ -221,7 +221,7 @@ export async function prepareCsvTransactions({
   rowHashForTransaction,
   debug,
 }: {
-  transactions: ParsedTransaction[]
+  transactions: Array<ParsedTransaction & { rowNumber?: number }>
   accountId: string
   accounts: AccountLookup[]
   importId: string
@@ -233,7 +233,7 @@ export async function prepareCsvTransactions({
   const errors: string[] = []
 
   for (const [index, transaction] of transactions.entries()) {
-    const rowNumber = rowOffset + index + 1
+    const rowNumber = transaction.rowNumber ?? rowOffset + index + 1
 
     try {
       const { description, memo, reference } = resolveTransactionFields(transaction)

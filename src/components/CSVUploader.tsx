@@ -4,9 +4,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { IconFileUp, IconUploadCloud } from '@/components/ui/icons'
 import { parseCSV } from '@/lib/csv-parser'
-import { ImportRecord, ParsedTransaction } from '@/types'
+import { computeHeaderFingerprint } from '@/lib/import-header-fingerprint'
+import {
+  buildMappingPayload,
+  detectMappingFromHeaders,
+  validateMapping,
+} from '@/lib/import-mapping'
+import { transformImportRows } from '@/lib/import-transform'
+import { AmountStrategy, CSVRow, ImportFieldMapping, ImportRecord } from '@/types'
 import { apiRequest } from '@/lib/api-client'
 import AlertBanner from '@/components/AlertBanner'
+import FieldMappingPanel from '@/components/FieldMappingPanel'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { useToast } from '@/components/ui/Toast'
@@ -22,7 +30,27 @@ export default function CSVUploader({
   const searchParams = useSearchParams()
   const [files, setFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
-  const [parsedData, setParsedData] = useState<ParsedTransaction[]>([])
+  const [parsedRows, setParsedRows] = useState<CSVRow[]>([])
+  const [parsedHeaders, setParsedHeaders] = useState<string[]>([])
+  const [headerFingerprint, setHeaderFingerprint] = useState<string | null>(null)
+  const [mapping, setMapping] = useState<ImportFieldMapping>({
+    date: null,
+    amount: null,
+    inflow: null,
+    outflow: null,
+    payee: null,
+    description: null,
+    memo: null,
+    reference: null,
+    category: null,
+    status: null,
+  })
+  const [amountStrategy, setAmountStrategy] = useState<AmountStrategy>('signed')
+  const [mappingId, setMappingId] = useState<string | null>(null)
+  const [mappingName, setMappingName] = useState('')
+  const [saveTemplate, setSaveTemplate] = useState(false)
+  const [mappingDirty, setMappingDirty] = useState(false)
+  const [mappingLoading, setMappingLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -34,6 +62,11 @@ export default function CSVUploader({
   useEffect(() => {
     setAccountId(selectedAccountId ?? '')
   }, [selectedAccountId])
+
+  const selectedAccount = useMemo(
+    () => accounts.find((account) => account.id === accountId) ?? null,
+    [accounts, accountId]
+  )
 
   const handleAccountChange = (value: string) => {
     setAccountId(value)
@@ -82,7 +115,9 @@ export default function CSVUploader({
   const handleParse = async (filesToParse: File[]) => {
     setError(null)
     setSuccessMessage(null)
-    setParsedData([])
+    setParsedRows([])
+    setParsedHeaders([])
+    setHeaderFingerprint(null)
     setCurrentImport(null)
     if (searchParams.get('import_id')) {
       const params = new URLSearchParams(searchParams.toString())
@@ -91,22 +126,35 @@ export default function CSVUploader({
     }
 
     try {
-      const allTransactions: ParsedTransaction[] = []
+      const allRows: CSVRow[] = []
+      let headers: string[] = []
 
       for (const file of filesToParse) {
-        const transactions = await parseCSV(file)
-        allTransactions.push(...transactions)
+        const parsed = await parseCSV(file)
+        headers = parsed.headers
+        allRows.push(...parsed.rows)
       }
 
       if (debugIngest) {
         console.info('[ingest] Parsed transactions', {
           fileCount: filesToParse.length,
-          parsedCount: allTransactions.length,
-          sample: allTransactions.slice(0, 3),
+          parsedCount: allRows.length,
+          sample: allRows.slice(0, 3),
         })
       }
 
-      setParsedData(allTransactions)
+      const fingerprint = headers.length > 0 ? await computeHeaderFingerprint(headers) : null
+      const detected = detectMappingFromHeaders(headers)
+
+      setParsedRows(allRows)
+      setParsedHeaders(headers)
+      setHeaderFingerprint(fingerprint)
+      setMapping(detected.mapping)
+      setAmountStrategy(detected.amountStrategy)
+      setMappingId(null)
+      setMappingName('')
+      setSaveTemplate(false)
+      setMappingDirty(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to parse CSV'
       setError(message)
@@ -159,6 +207,55 @@ export default function CSVUploader({
   }, [searchParams])
 
   useEffect(() => {
+    if (!accountId || !headerFingerprint) return
+    let cancelled = false
+
+    const loadMapping = async () => {
+      setMappingLoading(true)
+      try {
+        const result = await apiRequest<{
+          mapping: {
+            id: string
+            mapping: ImportFieldMapping
+            amount_strategy: AmountStrategy
+            mapping_name?: string | null
+          } | null
+        }>(
+          `/api/import-mappings?account_id=${encodeURIComponent(
+            accountId
+          )}&header_fingerprint=${encodeURIComponent(headerFingerprint)}`
+        )
+
+        if (cancelled) return
+
+        if (result.mapping) {
+          setMapping(result.mapping.mapping)
+          setAmountStrategy(result.mapping.amount_strategy)
+          setMappingId(result.mapping.id)
+          setMappingName(result.mapping.mapping_name ?? '')
+          setMappingDirty(false)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message =
+            err instanceof Error ? err.message : 'Failed to load mapping template'
+          setError(message)
+        }
+      } finally {
+        if (!cancelled) {
+          setMappingLoading(false)
+        }
+      }
+    }
+
+    void loadMapping()
+
+    return () => {
+      cancelled = true
+    }
+  }, [accountId, headerFingerprint])
+
+  useEffect(() => {
     if (!currentImport?.id) return
     if (['succeeded', 'failed', 'canceled'].includes(currentImport.status)) return
 
@@ -175,6 +272,55 @@ export default function CSVUploader({
     const processed = currentImport.processed_rows ?? 0
     return Math.min(100, Math.round((processed / total) * 100))
   }, [currentImport])
+
+  const mappingValidation = useMemo(
+    () => validateMapping({ mapping, amountStrategy }),
+    [mapping, amountStrategy]
+  )
+
+  const previewResult = useMemo(() => {
+    if (parsedRows.length === 0) {
+      return { transactions: [], errors: [] }
+    }
+
+    return transformImportRows({
+      rows: parsedRows,
+      mapping,
+      amountStrategy,
+    })
+  }, [parsedRows, mapping, amountStrategy])
+
+  const previewErrorSummary = useMemo(() => {
+    if (parsedRows.length === 0 || previewResult.errors.length === 0) {
+      return null
+    }
+
+    const errorRate = previewResult.errors.length / parsedRows.length
+    const threshold = 0.1
+    if (errorRate < threshold) {
+      return null
+    }
+
+    const dateErrors = previewResult.errors.filter((error) => error.field === 'date').length
+    const amountErrors = previewResult.errors.filter(
+      (error) => error.field === 'amount' || error.field === 'inflow'
+    ).length
+
+    return {
+      errorRate,
+      dateErrors,
+      amountErrors,
+      total: previewResult.errors.length,
+    }
+  }, [parsedRows.length, previewResult.errors])
+
+  const updateMappingField = (field: keyof ImportFieldMapping, value: string) => {
+    setMapping((prev) => ({
+      ...prev,
+      [field]: value || null,
+    }))
+    setMappingDirty(true)
+  }
 
   const handleUpload = async () => {
     setUploading(true)
@@ -193,9 +339,46 @@ export default function CSVUploader({
         throw new Error('Select a CSV file before uploading.')
       }
 
+      if (!headerFingerprint) {
+        throw new Error('Header fingerprint is unavailable. Re-parse the file.')
+      }
+
+      if (!mappingValidation.isValid) {
+        throw new Error(mappingValidation.errors.join(' '))
+      }
+
+      let mappingTemplateId = mappingId
+      if (saveTemplate) {
+        const payload = {
+          account_id: accountId,
+          mapping_name: mappingName || null,
+          source: selectedAccount?.institution ?? null,
+          header_fingerprint: headerFingerprint,
+          mapping: buildMappingPayload(mapping),
+          amount_strategy: amountStrategy,
+        }
+
+        const result = await apiRequest<{ mapping: { id: string } }>('/api/import-mappings', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+
+        mappingTemplateId = result.mapping.id
+        setMappingId(mappingTemplateId)
+        setMappingDirty(false)
+      } else if (mappingDirty) {
+        mappingTemplateId = null
+      }
+
       const formData = new FormData()
       formData.append('file', file)
       formData.append('accountId', accountId)
+      formData.append('mapping', JSON.stringify(buildMappingPayload(mapping)))
+      formData.append('amountStrategy', amountStrategy)
+      formData.append('headerFingerprint', headerFingerprint)
+      if (mappingTemplateId) {
+        formData.append('mappingId', mappingTemplateId)
+      }
 
       const result = await apiRequest<{ import: ImportRecord; existing: boolean }>(
         '/api/upload/csv',
@@ -404,12 +587,32 @@ export default function CSVUploader({
         </div>
       )}
 
-      {parsedData.length > 0 && (
+      {parsedRows.length > 0 && (
+        <FieldMappingPanel
+          headers={parsedHeaders}
+          mapping={mapping}
+          amountStrategy={amountStrategy}
+          mappingValidationErrors={mappingValidation.errors}
+          previewErrorSummary={previewErrorSummary}
+          mappingLoading={mappingLoading}
+          saveTemplate={saveTemplate}
+          mappingName={mappingName}
+          onMappingChange={updateMappingField}
+          onAmountStrategyChange={(value) => {
+            setAmountStrategy(value)
+            setMappingDirty(true)
+          }}
+          onSaveTemplateChange={setSaveTemplate}
+          onMappingNameChange={setMappingName}
+        />
+      )}
+
+      {previewResult.transactions.length > 0 && (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-sm font-medium text-slate-900">
-                Parsed {parsedData.length} transactions
+                Parsed {previewResult.transactions.length} transactions
               </h3>
               <p className="text-xs text-slate-500">Review the preview before importing.</p>
             </div>
@@ -418,6 +621,7 @@ export default function CSVUploader({
               disabled={
                 uploading ||
                 !accountId ||
+                !mappingValidation.isValid ||
                 ['queued', 'running'].includes(currentImport?.status ?? '')
               }
               variant="primary"
@@ -438,7 +642,7 @@ export default function CSVUploader({
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {parsedData.slice(0, 50).map((transaction, idx) => (
+                  {previewResult.transactions.slice(0, 50).map((transaction, idx) => (
                     <tr key={idx} className="border-b border-slate-100 text-sm text-slate-700">
                       <td className="px-4 py-3 text-sm text-slate-900 whitespace-nowrap">
                         {transaction.date}
@@ -461,10 +665,10 @@ export default function CSVUploader({
                 </tbody>
               </table>
             </div>
-            {parsedData.length > 50 && (
+            {previewResult.transactions.length > 50 && (
               <div className="px-4 py-3 bg-slate-50 border-t border-slate-200">
                 <p className="text-sm text-slate-500">
-                  Showing first 50 of {parsedData.length} transactions
+                  Showing first 50 of {previewResult.transactions.length} transactions
                 </p>
               </div>
             )}
