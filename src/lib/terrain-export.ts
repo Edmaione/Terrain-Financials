@@ -35,7 +35,6 @@ export async function exportTerrainJournalLines(startDate: string, endDate: stri
         approved_by,
         approved_at,
         review_status,
-        reviewed,
         is_split,
         primary_category_id,
         category_id,
@@ -44,6 +43,7 @@ export async function exportTerrainJournalLines(startDate: string, endDate: stri
     )
     .gte('date', startDate)
     .lte('date', endDate)
+    .is('deleted_at', null)
     .order('date', { ascending: true })
     .order('id', { ascending: true })
 
@@ -94,7 +94,7 @@ export async function exportTerrainJournalLines(startDate: string, endDate: stri
   const rows: TerrainJournalLine[] = []
 
   const approvedTransactions = transactions.filter((transaction) =>
-    isReviewApproved(transaction.review_status, transaction.reviewed)
+    isReviewApproved(transaction.review_status)
   )
 
   approvedTransactions.forEach((transaction) => {

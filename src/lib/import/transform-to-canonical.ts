@@ -1,9 +1,10 @@
 import {
   AmountStrategy,
+  BankStatus,
   CSVRow,
   ImportFieldMapping,
   ParsedTransaction,
-  PostingStatus,
+  ReconciliationStatus,
 } from '@/types'
 import { type DateFormatHint } from '@/lib/import-date-format'
 import { mapStatusValue, normalizeStatusKey, type StatusMappingValue } from '@/lib/import-status'
@@ -97,7 +98,7 @@ function buildImportRowHashPayload({
   memo: string | null
   amount: number
   reference: string | null
-  status: PostingStatus | null
+  status: BankStatus | null
   source_system: ParsedTransaction['source_system']
 }) {
   return JSON.stringify({
@@ -184,7 +185,7 @@ export async function transformImportRows({
     const description = normalizeValue(readMappedValue(row, mapping.description))
     const memo = normalizeValue(readMappedValue(row, mapping.memo))
     const reference = normalizeValue(readMappedValue(row, mapping.reference))
-    const category_name = normalizeValue(readMappedValue(row, mapping.category_name))
+    const category = normalizeValue(readMappedValue(row, mapping.category))
     const resolvedDescription = description ?? memo ?? reference ?? payee ?? null
     const resolvedPayee = payee ?? resolvedDescription ?? 'Unknown'
     if (!payee && !description) {
@@ -195,9 +196,9 @@ export async function transformImportRows({
       })
       continue
     }
-    const rawStatus = normalizeValue(readMappedValue(row, mapping.status))
-    const status = mapStatusValue(rawStatus, statusMap)
-    if (rawStatus && mapping.status) {
+    const rawStatus = normalizeValue(readMappedValue(row, mapping.bank_status))
+    const statusValue = mapStatusValue(rawStatus, statusMap)
+    if (rawStatus && mapping.bank_status) {
       const normalizedStatus = normalizeStatusKey(rawStatus)
       if (!statusMap || !statusMap[normalizedStatus]) {
         errors.push({
@@ -208,6 +209,12 @@ export async function transformImportRows({
         continue
       }
     }
+    const bankStatus: BankStatus | null =
+      statusValue === 'pending' || statusValue === 'posted' ? statusValue : null
+    const reconciliationStatus: ReconciliationStatus | null =
+      statusValue === 'unreconciled' || statusValue === 'cleared' || statusValue === 'reconciled'
+        ? statusValue
+        : null
     const importRowHash = await sha256Hex(
       buildImportRowHashPayload({
         rowNumber,
@@ -217,7 +224,7 @@ export async function transformImportRows({
         memo,
         amount,
         reference,
-        status,
+        status: bankStatus,
         source_system: sourceSystem,
       })
     )
@@ -228,10 +235,11 @@ export async function transformImportRows({
       description: resolvedDescription,
       memo,
       amount,
-      category_name,
+      category,
       reference,
-      status,
-      status_raw: rawStatus,
+      bank_status: bankStatus,
+      reconciliation_status: reconciliationStatus,
+      bank_status_raw: rawStatus,
       source_system: sourceSystem,
       raw_data: row,
       rowNumber,

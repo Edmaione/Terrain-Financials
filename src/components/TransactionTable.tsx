@@ -127,7 +127,16 @@ export default function TransactionTable({
   }
 
   const handleBulkAction = async (
-    action: 'mark_reviewed' | 'set_category' | 'approve' | 'set_account'
+    action:
+      | 'mark_reviewed'
+      | 'set_category'
+      | 'approve'
+      | 'set_account'
+      | 'mark_cleared'
+      | 'mark_reconciled'
+      | 'mark_unreconciled'
+      | 'soft_delete'
+      | 'restore'
   ) => {
     if (selectedIds.length === 0) return
 
@@ -147,6 +156,13 @@ export default function TransactionTable({
         description: 'Choose an account before applying bulk updates.',
       })
       return
+    }
+
+    if (action === 'soft_delete') {
+      const confirmed = window.confirm(
+        `Soft delete ${selectedIds.length} selected transaction(s)? You can restore them later.`
+      )
+      if (!confirmed) return
     }
 
     setBulkProcessing(true)
@@ -356,6 +372,47 @@ export default function TransactionTable({
               >
                 Approve
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleBulkAction('mark_cleared')}
+                disabled={bulkProcessing}
+              >
+                Mark cleared
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleBulkAction('mark_reconciled')}
+                disabled={bulkProcessing}
+              >
+                Mark reconciled
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleBulkAction('mark_unreconciled')}
+                disabled={bulkProcessing}
+              >
+                Mark unreconciled
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleBulkAction('restore')}
+                disabled={bulkProcessing}
+              >
+                Restore
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleBulkAction('soft_delete')}
+                disabled={bulkProcessing}
+                className="text-rose-600"
+              >
+                Soft delete
+              </Button>
             </div>
           </div>
         </div>
@@ -417,8 +474,7 @@ export default function TransactionTable({
           </TableHeader>
           <TableBody>
             {transactions.map((transaction) => {
-              const isReviewed =
-                Boolean(transaction.reviewed) || transaction.review_status === 'approved'
+              const isReviewed = transaction.review_status === 'approved'
               const amount = transaction.amount ?? 0
               const isPositive = amount >= 0
               const accountIdValue =
@@ -427,10 +483,7 @@ export default function TransactionTable({
                 (accountIdValue && accountsById.get(accountIdValue)?.name) ||
                 transaction.accounts?.name ||
                 'Unassigned'
-              const transferName =
-                transaction.transfer_account?.name ||
-                transaction.transfer_to_account?.name ||
-                null
+              const transferName = transaction.transfer_to_account?.name || null
               const suggestedCategoryId =
                 transaction.primary_category_id ||
                 transaction.category_id ||
@@ -454,14 +507,10 @@ export default function TransactionTable({
                 (transferName
                   ? `${isPositive ? 'From' : 'To'} ${transferName}`
                   : transaction.payee_display || transaction.payee || '—')
-              const normalizedStatus =
-                typeof transaction.status === 'string'
-                  ? transaction.status.toLowerCase()
-                  : 'posted'
-              const statusAlias =
-                normalizedStatus === 'settled' || normalizedStatus === 'approved'
-                  ? 'posted'
-                  : normalizedStatus
+              const bankStatus = transaction.bank_status ?? 'posted'
+              const reconciliationStatus = transaction.reconciliation_status ?? 'unreconciled'
+              const isVoided = Boolean(transaction.voided_at)
+              const isDeleted = Boolean(transaction.deleted_at)
               const hasRule = Boolean(transaction.applied_rule_id)
               return (
                 <TableRow
@@ -614,9 +663,20 @@ export default function TransactionTable({
                   <TableCell className="whitespace-nowrap text-center">
                     <div className="flex flex-col items-center" style={{ gap: spacing[2] }}>
                       {transaction.is_transfer && <Badge variant="info">PAIRED</Badge>}
-                      {statusAlias === 'pending' && <Badge variant="warning">Pending</Badge>}
-                      {statusAlias === 'posted' && <Badge variant="success">Posted</Badge>}
-                      {statusAlias === 'reconciled' && <Badge variant="neutral">Reconciled</Badge>}
+                      {isDeleted && <Badge variant="error">Deleted</Badge>}
+                      {isVoided && !isDeleted && <Badge variant="warning">Voided</Badge>}
+                      {!isVoided && !isDeleted && bankStatus === 'pending' && (
+                        <Badge variant="warning">Pending</Badge>
+                      )}
+                      {!isVoided && !isDeleted && bankStatus === 'posted' && (
+                        <Badge variant="success">Posted</Badge>
+                      )}
+                      {!isVoided && !isDeleted && reconciliationStatus === 'cleared' && (
+                        <Badge variant="info">Cleared</Badge>
+                      )}
+                      {!isVoided && !isDeleted && reconciliationStatus === 'reconciled' && (
+                        <Badge variant="neutral">Reconciled</Badge>
+                      )}
                       {hasRule && <Badge variant="neutral">Rule</Badge>}
                     </div>
                   </TableCell>

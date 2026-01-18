@@ -20,8 +20,8 @@ const FIELD_CANDIDATES: Record<keyof ImportFieldMapping, string[]> = {
   description: ['description', 'details', 'transaction_description'],
   memo: ['memo', 'notes', 'note'],
   reference: ['reference', 'ref', 'reference_number', 'check_number', 'check_or_slip', 'check_no'],
-  category_name: ['category', 'category_name', 'type', 'category_type'],
-  status: ['status', 'state'],
+  category: ['category', 'category_name', 'type', 'category_type'],
+  bank_status: ['status', 'state', 'bank_status', 'posting_status'],
 }
 
 const EMPTY_MAPPING: ImportFieldMapping = {
@@ -33,8 +33,8 @@ const EMPTY_MAPPING: ImportFieldMapping = {
   description: null,
   memo: null,
   reference: null,
-  category_name: null,
-  status: null,
+  category: null,
+  bank_status: null,
 }
 
 function buildHeaderLookup(headers: string[]): HeaderMatch[] {
@@ -71,8 +71,8 @@ export function detectMappingFromHeaders(headers: string[]) {
   mapping.description = pickHeader(lookup, FIELD_CANDIDATES.description)
   mapping.memo = pickHeader(lookup, FIELD_CANDIDATES.memo)
   mapping.reference = pickHeader(lookup, FIELD_CANDIDATES.reference)
-  mapping.category_name = pickHeader(lookup, FIELD_CANDIDATES.category_name)
-  mapping.status = pickHeader(lookup, FIELD_CANDIDATES.status)
+  mapping.category = pickHeader(lookup, FIELD_CANDIDATES.category)
+  mapping.bank_status = pickHeader(lookup, FIELD_CANDIDATES.bank_status)
 
   const amountStrategy: AmountStrategy =
     mapping.inflow && mapping.outflow && !mapping.amount ? 'inflow_outflow' : 'signed'
@@ -81,15 +81,15 @@ export function detectMappingFromHeaders(headers: string[]) {
 }
 
 export function normalizeImportMapping(
-  mapping: Partial<ImportFieldMapping> & { category?: string | null }
+  mapping: Partial<ImportFieldMapping> & { category_name?: string | null }
 ): ImportFieldMapping {
   return {
     ...EMPTY_MAPPING,
     ...mapping,
     memo: mapping.memo ?? null,
     reference: mapping.reference ?? null,
-    category_name: mapping.category_name ?? mapping.category ?? null,
-    status: mapping.status ?? null,
+    category: mapping.category ?? mapping.category_name ?? null,
+    bank_status: mapping.bank_status ?? null,
   }
 }
 
@@ -133,7 +133,7 @@ export function buildMappingPayload(mapping: ImportFieldMapping) {
     description: mapping.description ?? null,
     memo: mapping.memo ?? null,
     reference: mapping.reference ?? null,
-    category_name: mapping.category_name ?? null,
-    status: mapping.status ?? null,
+    category: mapping.category ?? null,
+    bank_status: mapping.bank_status ?? null,
   }
 }

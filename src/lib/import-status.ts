@@ -1,12 +1,15 @@
-import { PostingStatus } from '@/types'
+import { BankStatus, ReconciliationStatus } from '@/types'
 
-export const ALLOWED_POSTING_STATUSES: PostingStatus[] = [
+export type ImportStatusValue = BankStatus | ReconciliationStatus
+
+export const ALLOWED_POSTING_STATUSES: ImportStatusValue[] = [
   'pending',
   'posted',
+  'cleared',
   'reconciled',
 ]
 
-export type StatusMappingValue = PostingStatus | 'ignore'
+export type StatusMappingValue = ImportStatusValue | 'ignore'
 
 export function normalizeStatusKey(value?: string | null) {
   return value?.trim().toLowerCase() ?? ''
@@ -15,7 +18,7 @@ export function normalizeStatusKey(value?: string | null) {
 export function mapStatusValue(
   rawValue: string | null | undefined,
   statusMap: Record<string, StatusMappingValue> | null | undefined
-): PostingStatus | null {
+): ImportStatusValue | null {
   if (!rawValue) return null
   if (!statusMap) return null
   const key = normalizeStatusKey(rawValue)
