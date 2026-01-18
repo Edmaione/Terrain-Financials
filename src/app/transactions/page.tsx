@@ -101,7 +101,7 @@ async function getTransactions({
     .from('transactions')
     .select(`
       *,
-      accounts:accounts!transactions_account_id_fkey(name, type, institution),
+      accounts:accounts!inner(name, type, institution),
       customer:customers!transactions_customer_id_fkey(name),
       vendor:vendors!transactions_vendor_id_fkey(name),
       transfer_account:accounts!transactions_transfer_account_id_fkey(name),
@@ -169,6 +169,7 @@ async function getBankAccounts(): Promise<Account[]> {
     .from('accounts')
     .select('*')
     .eq('is_active', true)
+    .neq('name', 'Maione Landscapes')
     .in('type', ['checking', 'savings', 'credit_card', 'loan'])
     .order('display_order', { ascending: true })
 
