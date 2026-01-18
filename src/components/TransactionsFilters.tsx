@@ -48,7 +48,7 @@ export default function TransactionsFilters({
   startDate?: string
   endDate?: string
   lastUpdated: string
-  accounts: Array<{ id: string; name: string; institution?: string | null }>
+  accounts: Array<{ id: string; name: string; type?: string; institution?: string | null }>
   accountId?: string
   query?: string
   status?: string
@@ -237,8 +237,7 @@ export default function TransactionsFilters({
             {accounts.length === 0 && <option value="">No accounts</option>}
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
-                {account.institution ? ` · ${account.institution}` : ''}
+                {account.name} ({account.type || 'account'})
               </option>
             ))}
           </Select>

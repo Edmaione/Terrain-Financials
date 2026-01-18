@@ -6,15 +6,34 @@ export async function fetchActiveAccounts(): Promise<Account[]> {
     .from('accounts')
     .select('*')
     .eq('is_active', true)
-    .order('updated_at', { ascending: false })
-    .order('created_at', { ascending: false });
+    .in('type', ['checking', 'savings', 'credit_card', 'loan'])
+    .order('display_order', { ascending: true })
+    .order('name', { ascending: true });
 
   if (error) {
     console.error('[accounts] Failed to fetch accounts', error);
     return [];
   }
 
-  return data || [];
+  const accounts = data || [];
+
+  for (const account of accounts) {
+    const { data: transactions, error: transactionsError } = await supabaseAdmin
+      .from('transactions')
+      .select('amount')
+      .eq('account_id', account.id);
+
+    if (transactionsError) {
+      console.error('[accounts] Failed to fetch account balance', transactionsError);
+      account.current_balance = account.current_balance ?? 0;
+      continue;
+    }
+
+    account.current_balance =
+      transactions?.reduce((sum, transaction) => sum + (transaction.amount ?? 0), 0) || 0;
+  }
+
+  return accounts;
 }
 
 export async function ensureDefaultAccount(): Promise<Account | null> {
