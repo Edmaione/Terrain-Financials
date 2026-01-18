@@ -16,6 +16,12 @@ CREATE TYPE txn_status AS ENUM ('draft', 'posted', 'void');
 -- Review status enum
 CREATE TYPE review_status AS ENUM ('needs_review', 'approved');
 
+-- Bank status enum
+CREATE TYPE bank_status AS ENUM ('pending', 'posted');
+
+-- Reconciliation status enum
+CREATE TYPE reconciliation_status AS ENUM ('unreconciled', 'cleared', 'reconciled');
+
 -- Source system enum
 CREATE TYPE source_system AS ENUM (
     'manual',
@@ -248,6 +254,12 @@ CREATE TABLE transactions (
     source_id TEXT,
     source_hash TEXT,
     posted_at DATE,
+    bank_status bank_status DEFAULT 'posted',
+    reconciliation_status reconciliation_status DEFAULT 'unreconciled',
+    cleared_at TIMESTAMP WITH TIME ZONE,
+    reconciled_at TIMESTAMP WITH TIME ZONE,
+    voided_at TIMESTAMP WITH TIME ZONE,
+    deleted_at TIMESTAMP WITH TIME ZONE,
     
     -- Document storage
     receipt_url TEXT, -- Link to Supabase Storage
@@ -270,7 +282,14 @@ CREATE TABLE transactions (
     import_row_hash TEXT,
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_by TEXT,
+    CONSTRAINT transactions_reconciliation_state_chk CHECK (
+        (reconciliation_status = 'unreconciled' AND cleared_at IS NULL AND reconciled_at IS NULL)
+        OR (reconciliation_status = 'cleared' AND cleared_at IS NOT NULL AND reconciled_at IS NULL)
+        OR (reconciliation_status = 'reconciled' AND reconciled_at IS NOT NULL)
+    ),
+    CONSTRAINT transactions_transfer_group_chk CHECK (transfer_group_id IS NULL OR is_transfer = true)
 );
 
 -- ============================================================================
@@ -292,9 +311,13 @@ CREATE TABLE review_actions (
 CREATE TABLE transaction_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    split_id UUID,
     field TEXT NOT NULL,
     old_value TEXT,
     new_value TEXT,
+    action TEXT,
+    before_json JSONB,
+    after_json JSONB,
     changed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     changed_by TEXT
 );
@@ -307,11 +330,19 @@ CREATE TABLE transaction_splits (
     transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
     category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    job_id UUID REFERENCES jobs(id) ON DELETE SET NULL,
+    payee_id UUID REFERENCES payees(id) ON DELETE SET NULL,
     amount DECIMAL(12,2) NOT NULL,
+    line_number INTEGER,
     memo TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_by TEXT
 );
+
+ALTER TABLE transaction_audit
+    ADD CONSTRAINT transaction_audit_split_id_fkey
+    FOREIGN KEY (split_id) REFERENCES transaction_splits(id) ON DELETE CASCADE;
 
 -- ============================================================================
 -- CATEGORIZATION RULES TABLE
@@ -391,13 +422,291 @@ CREATE INDEX idx_transactions_source_hash ON transactions(source_hash);
 CREATE INDEX idx_transactions_source_source_hash ON transactions(source, source_hash);
 CREATE INDEX idx_transactions_review_status ON transactions(review_status);
 CREATE INDEX idx_transactions_primary_category ON transactions(primary_category_id);
+CREATE INDEX idx_transactions_account_date ON transactions(account_id, date DESC);
+CREATE INDEX idx_transactions_bank_status ON transactions(bank_status);
+CREATE INDEX idx_transactions_reconciliation_status ON transactions(reconciliation_status);
+CREATE INDEX idx_transactions_transfer_group ON transactions(transfer_group_id) WHERE transfer_group_id IS NOT NULL;
 CREATE INDEX imports_account_id_created_at_idx ON imports(account_id, created_at DESC);
 CREATE INDEX imports_status_idx ON imports(status);
 CREATE UNIQUE INDEX imports_single_flight_idx ON imports(account_id, file_sha256)
     WHERE status IN ('queued', 'running');
 CREATE UNIQUE INDEX transactions_import_row_hash_idx ON transactions(import_id, import_row_hash)
     WHERE import_id IS NOT NULL AND import_row_hash IS NOT NULL;
+CREATE UNIQUE INDEX transactions_source_hash_unique ON transactions(account_id, source, source_hash)
+    WHERE source_hash IS NOT NULL;
 CREATE INDEX idx_categorization_rules_payee ON categorization_rules(payee_pattern);
+
+-- ============================================================================
+-- FUNCTIONS AND TRIGGERS
+-- ============================================================================
+CREATE OR REPLACE FUNCTION transactions_sync_canonical()
+RETURNS trigger AS $$
+DECLARE
+  other_account uuid;
+BEGIN
+  IF NEW.bank_status IS NULL THEN
+    IF NEW.status = 'PENDING' OR NEW.txn_status = 'draft' THEN
+      NEW.bank_status := 'pending';
+    ELSE
+      NEW.bank_status := 'posted';
+    END IF;
+  END IF;
+
+  IF NEW.review_status IS NULL THEN
+    IF NEW.reviewed = true OR NEW.approved_at IS NOT NULL THEN
+      NEW.review_status := 'approved';
+    ELSE
+      NEW.review_status := 'needs_review';
+    END IF;
+  END IF;
+
+  NEW.reviewed := (NEW.review_status = 'approved');
+  IF NEW.review_status = 'approved' AND NEW.approved_at IS NULL THEN
+    NEW.approved_at := now();
+  END IF;
+
+  IF NEW.reconciliation_status IS NULL THEN
+    IF NEW.reconciled_at IS NOT NULL THEN
+      NEW.reconciliation_status := 'reconciled';
+    ELSIF NEW.cleared_at IS NOT NULL THEN
+      NEW.reconciliation_status := 'cleared';
+    ELSE
+      NEW.reconciliation_status := 'unreconciled';
+    END IF;
+  END IF;
+
+  IF NEW.reconciliation_status = 'reconciled' THEN
+    IF NEW.reconciled_at IS NULL THEN
+      NEW.reconciled_at := now();
+    END IF;
+    NEW.cleared_at := COALESCE(NEW.cleared_at, NEW.reconciled_at);
+  ELSIF NEW.reconciliation_status = 'cleared' THEN
+    IF NEW.cleared_at IS NULL THEN
+      NEW.cleared_at := now();
+    END IF;
+    NEW.reconciled_at := NULL;
+  ELSE
+    NEW.cleared_at := NULL;
+    NEW.reconciled_at := NULL;
+  END IF;
+
+  IF NEW.voided_at IS NOT NULL THEN
+    NEW.status := 'CANCELLED';
+    NEW.txn_status := 'void';
+  ELSE
+    NEW.txn_status := CASE WHEN NEW.bank_status = 'pending' THEN 'draft' ELSE 'posted' END;
+    NEW.status := CASE
+      WHEN NEW.bank_status = 'pending' THEN 'PENDING'
+      WHEN NEW.review_status = 'approved' THEN 'APPROVED'
+      ELSE 'SETTLED'
+    END;
+  END IF;
+
+  IF NEW.transfer_group_id IS NULL THEN
+    NEW.is_transfer := false;
+    NEW.transfer_to_account_id := NULL;
+  ELSE
+    NEW.is_transfer := true;
+    IF NEW.transfer_to_account_id IS NULL THEN
+      SELECT account_id
+      INTO other_account
+      FROM transactions
+      WHERE transfer_group_id = NEW.transfer_group_id
+        AND id <> NEW.id
+        AND deleted_at IS NULL
+      LIMIT 1;
+      IF other_account IS NOT NULL THEN
+        NEW.transfer_to_account_id := other_account;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER transactions_sync_canonical_trg
+BEFORE INSERT OR UPDATE ON transactions
+FOR EACH ROW
+EXECUTE FUNCTION transactions_sync_canonical();
+
+CREATE OR REPLACE FUNCTION transactions_update_is_split()
+RETURNS trigger AS $$
+DECLARE
+  txn_id uuid;
+BEGIN
+  txn_id := COALESCE(NEW.transaction_id, OLD.transaction_id);
+  UPDATE transactions
+  SET is_split = EXISTS (
+    SELECT 1 FROM transaction_splits WHERE transaction_id = txn_id
+  )
+  WHERE id = txn_id;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER transactions_update_is_split_trg
+AFTER INSERT OR DELETE OR UPDATE OF transaction_id ON transaction_splits
+FOR EACH ROW
+EXECUTE FUNCTION transactions_update_is_split();
+
+CREATE OR REPLACE FUNCTION transactions_validate_split_total()
+RETURNS trigger AS $$
+DECLARE
+  txn_id uuid;
+  total_amount numeric(12,2);
+  header_amount numeric(12,2);
+BEGIN
+  txn_id := COALESCE(NEW.transaction_id, OLD.transaction_id);
+  SELECT amount INTO header_amount FROM transactions WHERE id = txn_id;
+  IF header_amount IS NULL THEN
+    RETURN NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM transaction_splits WHERE transaction_id = txn_id) THEN
+    SELECT COALESCE(SUM(amount), 0)::numeric(12,2)
+      INTO total_amount
+    FROM transaction_splits
+    WHERE transaction_id = txn_id;
+    IF total_amount <> header_amount THEN
+      RAISE EXCEPTION 'Split total % does not match transaction amount % for transaction %',
+        total_amount, header_amount, txn_id;
+    END IF;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION transactions_validate_split_total_on_txn()
+RETURNS trigger AS $$
+DECLARE
+  total_amount numeric(12,2);
+BEGIN
+  IF EXISTS (SELECT 1 FROM transaction_splits WHERE transaction_id = NEW.id) THEN
+    SELECT COALESCE(SUM(amount), 0)::numeric(12,2)
+      INTO total_amount
+    FROM transaction_splits
+    WHERE transaction_id = NEW.id;
+    IF total_amount <> NEW.amount THEN
+      RAISE EXCEPTION 'Split total % does not match transaction amount % for transaction %',
+        total_amount, NEW.amount, NEW.id;
+    END IF;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE CONSTRAINT TRIGGER transaction_splits_total_chk
+AFTER INSERT OR UPDATE OR DELETE ON transaction_splits
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION transactions_validate_split_total();
+
+CREATE CONSTRAINT TRIGGER transactions_total_chk
+AFTER UPDATE OF amount ON transactions
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION transactions_validate_split_total_on_txn();
+
+CREATE OR REPLACE FUNCTION transactions_validate_transfer_group()
+RETURNS trigger AS $$
+DECLARE
+  group_id uuid;
+  txn_count integer;
+  accounts uuid[];
+  transfer_accounts uuid[];
+BEGIN
+  group_id := COALESCE(NEW.transfer_group_id, OLD.transfer_group_id);
+  IF group_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT count(*), array_agg(account_id), array_agg(transfer_to_account_id)
+  INTO txn_count, accounts, transfer_accounts
+  FROM transactions
+  WHERE transfer_group_id = group_id
+    AND deleted_at IS NULL;
+
+  IF txn_count <> 2 THEN
+    RAISE EXCEPTION 'Transfer group % must have exactly two active transactions', group_id;
+  END IF;
+
+  IF accounts[1] = accounts[2] THEN
+    RAISE EXCEPTION 'Transfer group % must span distinct accounts', group_id;
+  END IF;
+
+  IF transfer_accounts[1] IS NULL OR transfer_accounts[2] IS NULL THEN
+    RAISE EXCEPTION 'Transfer group % requires transfer_to_account_id on both sides', group_id;
+  END IF;
+
+  IF transfer_accounts[1] <> accounts[2] OR transfer_accounts[2] <> accounts[1] THEN
+    RAISE EXCEPTION 'Transfer group % must link reciprocal accounts', group_id;
+  END IF;
+
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE CONSTRAINT TRIGGER transactions_transfer_group_chk
+AFTER INSERT OR UPDATE OR DELETE ON transactions
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION transactions_validate_transfer_group();
+
+CREATE OR REPLACE FUNCTION transactions_audit_state_changes()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.review_status IS DISTINCT FROM OLD.review_status THEN
+      INSERT INTO transaction_audit (transaction_id, field, old_value, new_value, changed_at, changed_by)
+      VALUES (NEW.id, 'review_status', OLD.review_status::text, NEW.review_status::text, now(), NEW.updated_by);
+    END IF;
+    IF NEW.reconciliation_status IS DISTINCT FROM OLD.reconciliation_status THEN
+      INSERT INTO transaction_audit (transaction_id, field, old_value, new_value, changed_at, changed_by)
+      VALUES (NEW.id, 'reconciliation_status', OLD.reconciliation_status::text, NEW.reconciliation_status::text, now(), NEW.updated_by);
+    END IF;
+    IF NEW.bank_status IS DISTINCT FROM OLD.bank_status THEN
+      INSERT INTO transaction_audit (transaction_id, field, old_value, new_value, changed_at, changed_by)
+      VALUES (NEW.id, 'bank_status', OLD.bank_status::text, NEW.bank_status::text, now(), NEW.updated_by);
+    END IF;
+    IF NEW.voided_at IS DISTINCT FROM OLD.voided_at THEN
+      INSERT INTO transaction_audit (transaction_id, field, old_value, new_value, changed_at, changed_by)
+      VALUES (NEW.id, 'voided_at', OLD.voided_at::text, NEW.voided_at::text, now(), NEW.updated_by);
+    END IF;
+    IF NEW.deleted_at IS DISTINCT FROM OLD.deleted_at THEN
+      INSERT INTO transaction_audit (transaction_id, field, old_value, new_value, changed_at, changed_by)
+      VALUES (NEW.id, 'deleted_at', OLD.deleted_at::text, NEW.deleted_at::text, now(), NEW.updated_by);
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER transactions_audit_state_changes_trg
+AFTER UPDATE ON transactions
+FOR EACH ROW
+EXECUTE FUNCTION transactions_audit_state_changes();
+
+CREATE OR REPLACE FUNCTION transactions_audit_splits()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO transaction_audit (transaction_id, split_id, field, action, before_json, after_json, changed_at, changed_by)
+    VALUES (NEW.transaction_id, NEW.id, 'split', 'split_insert', NULL, to_jsonb(NEW), now(), NEW.updated_by);
+  ELSIF TG_OP = 'UPDATE' THEN
+    INSERT INTO transaction_audit (transaction_id, split_id, field, action, before_json, after_json, changed_at, changed_by)
+    VALUES (NEW.transaction_id, NEW.id, 'split', 'split_update', to_jsonb(OLD), to_jsonb(NEW), now(), NEW.updated_by);
+  ELSIF TG_OP = 'DELETE' THEN
+    INSERT INTO transaction_audit (transaction_id, split_id, field, action, before_json, after_json, changed_at, changed_by)
+    VALUES (OLD.transaction_id, OLD.id, 'split', 'split_delete', to_jsonb(OLD), NULL, now(), OLD.updated_by);
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER transactions_audit_splits_trg
+AFTER INSERT OR UPDATE OR DELETE ON transaction_splits
+FOR EACH ROW
+EXECUTE FUNCTION transactions_audit_splits();
 CREATE INDEX idx_stripe_payments_date ON stripe_payments(payment_date DESC);
 CREATE UNIQUE INDEX idx_payees_name ON payees(LOWER(name));
 CREATE INDEX idx_review_actions_transaction ON review_actions(transaction_id);
