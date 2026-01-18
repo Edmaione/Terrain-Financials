@@ -33,17 +33,17 @@ ALTER TABLE transaction_audit
 
 UPDATE transactions
 SET bank_status = CASE
-  WHEN status = 'PENDING' THEN 'pending'
-  WHEN txn_status = 'draft' THEN 'pending'
-  ELSE 'posted'
+  WHEN status = 'PENDING' THEN 'pending'::bank_status
+  WHEN txn_status = 'draft' THEN 'pending'::bank_status
+  ELSE 'posted'::bank_status
 END
 WHERE bank_status IS NULL;
 
 UPDATE transactions
 SET reconciliation_status = CASE
-  WHEN reconciled_at IS NOT NULL THEN 'reconciled'
-  WHEN cleared_at IS NOT NULL THEN 'cleared'
-  ELSE 'unreconciled'
+  WHEN reconciled_at IS NOT NULL THEN 'reconciled'::reconciliation_status
+  WHEN cleared_at IS NOT NULL THEN 'cleared'::reconciliation_status
+  ELSE 'unreconciled'::reconciliation_status
 END
 WHERE reconciliation_status IS NULL;
 
