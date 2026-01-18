@@ -117,15 +117,7 @@ async function getTransactions({
     query = query.eq('account_id', accountId)
   }
   if (statusFilter) {
-    const statusCandidates = new Set<string>([statusFilter, statusFilter.toUpperCase()])
-    if (statusFilter === 'posted') {
-      statusCandidates.add('SETTLED')
-      statusCandidates.add('APPROVED')
-    }
-    if (statusFilter === 'pending') {
-      statusCandidates.add('PENDING')
-    }
-    query = query.in('status', Array.from(statusCandidates))
+    query = query.in('status', [statusFilter])
   }
   if (reviewedFilter === false) {
     query = query.eq('reviewed', false)

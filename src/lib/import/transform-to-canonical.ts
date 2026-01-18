@@ -3,12 +3,14 @@ import {
   CSVRow,
   ImportFieldMapping,
   ParsedTransaction,
-  TransactionStatus,
+  PostingStatus,
 } from '@/types'
+import { type DateFormatHint } from '@/lib/import-date-format'
+import { mapStatusValue, normalizeStatusKey, type StatusMappingValue } from '@/lib/import-status'
 
 export type TransformError = {
   rowNumber: number
-  field: 'date' | 'amount' | 'inflow' | 'outflow'
+  field: 'date' | 'amount' | 'inflow' | 'outflow' | 'payee' | 'status'
   message: string
 }
 
@@ -20,20 +22,13 @@ export type CanonicalImportRow = ParsedTransaction & {
   account_id?: string | null
 }
 
-const VALID_STATUSES = new Set<TransactionStatus>([
-  'SETTLED',
-  'PENDING',
-  'APPROVED',
-  'CANCELLED',
-])
-
 function normalizeValue(value?: string | null): string | null {
   if (value === null || value === undefined) return null
   const trimmed = value.trim()
   return trimmed === '' ? null : trimmed
 }
 
-function parseDate(dateStr: string): string {
+function parseDate(dateStr: string, dateFormat?: DateFormatHint | null): string {
   const parsed = new Date(dateStr)
   if (!Number.isNaN(parsed.getTime())) {
     return parsed.toISOString().split('T')[0]
@@ -41,8 +36,11 @@ function parseDate(dateStr: string): string {
 
   const parts = dateStr.split('/')
   if (parts.length === 3) {
-    const [month, day, year] = parts
-    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+    const [first, second, year] = parts
+    if (dateFormat === 'dmy') {
+      return `${year}-${second.padStart(2, '0')}-${first.padStart(2, '0')}`
+    }
+    return `${year}-${first.padStart(2, '0')}-${second.padStart(2, '0')}`
   }
 
   throw new Error(`Unable to parse date: ${dateStr}`)
@@ -60,13 +58,6 @@ function parseAmount(amountStr: string): number {
   }
 
   return parsed
-}
-
-function parseStatus(value?: string | null): TransactionStatus | undefined {
-  const normalized = normalizeValue(value)
-  if (!normalized) return undefined
-  const upper = normalized.toUpperCase()
-  return VALID_STATUSES.has(upper as TransactionStatus) ? (upper as TransactionStatus) : undefined
 }
 
 function readMappedValue(row: CSVRow, key: string | null) {
@@ -106,7 +97,7 @@ function buildImportRowHashPayload({
   memo: string | null
   amount: number
   reference: string | null
-  status: TransactionStatus
+  status: PostingStatus | null
   source_system: ParsedTransaction['source_system']
 }) {
   return JSON.stringify({
@@ -129,6 +120,8 @@ export async function transformImportRows({
   sourceSystem = 'manual',
   accountId,
   importId,
+  statusMap,
+  dateFormat,
 }: {
   rows: CSVRow[]
   mapping: ImportFieldMapping
@@ -136,6 +129,8 @@ export async function transformImportRows({
   sourceSystem?: ParsedTransaction['source_system']
   accountId?: string | null
   importId?: string | null
+  statusMap?: Record<string, StatusMappingValue> | null
+  dateFormat?: DateFormatHint | null
 }): Promise<{ transactions: CanonicalImportRow[]; errors: TransformError[] }> {
   const errors: TransformError[] = []
   const transactions: CanonicalImportRow[] = []
@@ -150,7 +145,7 @@ export async function transformImportRows({
 
     let date: string
     try {
-      date = parseDate(dateRaw)
+      date = parseDate(dateRaw, dateFormat)
     } catch (error) {
       errors.push({
         rowNumber,
@@ -192,7 +187,27 @@ export async function transformImportRows({
     const category_name = normalizeValue(readMappedValue(row, mapping.category_name))
     const resolvedDescription = description ?? memo ?? reference ?? payee ?? null
     const resolvedPayee = payee ?? resolvedDescription ?? 'Unknown'
-    const status = parseStatus(readMappedValue(row, mapping.status)) ?? 'SETTLED'
+    if (!payee && !description) {
+      errors.push({
+        rowNumber,
+        field: 'payee',
+        message: 'Payee or description is required.',
+      })
+      continue
+    }
+    const rawStatus = normalizeValue(readMappedValue(row, mapping.status))
+    const status = mapStatusValue(rawStatus, statusMap)
+    if (rawStatus && mapping.status) {
+      const normalizedStatus = normalizeStatusKey(rawStatus)
+      if (!statusMap || !statusMap[normalizedStatus]) {
+        errors.push({
+          rowNumber,
+          field: 'status',
+          message: `Status "${rawStatus}" is not mapped.`,
+        })
+        continue
+      }
+    }
     const importRowHash = await sha256Hex(
       buildImportRowHashPayload({
         rowNumber,
@@ -216,6 +231,7 @@ export async function transformImportRows({
       category_name,
       reference,
       status,
+      status_raw: rawStatus,
       source_system: sourceSystem,
       raw_data: row,
       rowNumber,

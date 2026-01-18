@@ -33,8 +33,8 @@ export type PreparedTransaction = {
     primary_category_id?: string | null
     category_name?: string | null
     reference: string | null
-    status: string
-    txn_status: 'posted'
+    status: string | null
+    txn_status: 'posted' | 'void'
     is_transfer: boolean
     ai_suggested_category: string | null
     ai_confidence: number
@@ -44,6 +44,7 @@ export type PreparedTransaction = {
     source_id: string | null
     source_hash: string
     raw_csv_data: Record<string, string>
+    metadata?: Record<string, unknown> | null
     import_id: string
     import_row_number: number
     import_row_hash: string
@@ -234,7 +235,7 @@ export async function prepareCsvTransactions({
   debug?: boolean
 }) {
   const preparedTransactions: PreparedTransaction[] = []
-  const errors: string[] = []
+  const errors: Array<{ rowNumber: number; message: string; rawRow?: Record<string, string> }> = []
   const normalizedCategoryLabels = Array.from(
     new Set(
       transactions
@@ -374,6 +375,16 @@ export async function prepareCsvTransactions({
           source,
         })
 
+      const statusRaw = normalizeOptionalText(transaction.status_raw ?? null)
+      const normalizedStatusValue = normalizeOptionalText(transaction.status ?? null)
+      const allowedStatuses = new Set(['pending', 'posted', 'reconciled'])
+      const normalizedStatus =
+        normalizedStatusValue && allowedStatuses.has(normalizedStatusValue)
+          ? normalizedStatusValue
+          : null
+      const txnStatus =
+        statusRaw && statusRaw.toLowerCase().includes('void') ? 'void' : 'posted'
+
       preparedTransactions.push({
         transaction: {
           account_id: accountId,
@@ -389,8 +400,8 @@ export async function prepareCsvTransactions({
           primary_category_id: mappedCategoryId,
           category_name: normalizeOptionalText(transaction.category_name),
           reference: reference || null,
-          status: transaction.status || 'SETTLED',
-          txn_status: 'posted',
+          status: normalizedStatus,
+          txn_status: txnStatus,
           is_transfer: isTransfer,
           ai_suggested_category: suggestedCategoryId,
           ai_confidence: confidence,
@@ -400,6 +411,10 @@ export async function prepareCsvTransactions({
           source_id: sourceId,
           source_hash: sourceHash,
           raw_csv_data: transaction.raw_data,
+          metadata: {
+            status_raw: statusRaw ?? null,
+            status_mapped: normalizedStatus,
+          },
           import_id: importId,
           import_row_number: rowNumber,
           import_row_hash: rowHash,
@@ -419,11 +434,11 @@ export async function prepareCsvTransactions({
         })
       }
     } catch (err) {
-      errors.push(
-        `Error processing row ${rowNumber}: ${
-          err instanceof Error ? err.message : 'Unknown error'
-        }`
-      )
+      errors.push({
+        rowNumber,
+        message: err instanceof Error ? err.message : 'Unknown error',
+        rawRow: transaction.raw_data,
+      })
     }
   }
 

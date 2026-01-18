@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     if (action === 'approve') {
-      updatePayload.status = 'APPROVED';
+      updatePayload.status = 'posted';
       updatePayload.reviewed = true;
       updatePayload.reviewed_at = now;
       updatePayload.review_status = 'approved';

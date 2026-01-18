@@ -58,8 +58,10 @@ export async function POST(
       updatePayload.approved_at = new Date().toISOString()
       updatePayload.approved_by = approvedBy ?? 'manual'
     }
-    if (transaction.status === 'PENDING') {
-      updatePayload.status = 'APPROVED'
+    const normalizedStatus =
+      typeof transaction.status === 'string' ? transaction.status.toLowerCase() : null
+    if (normalizedStatus === 'pending') {
+      updatePayload.status = 'posted'
     }
 
     const { data: updated, error: updateError } = await supabaseAdmin

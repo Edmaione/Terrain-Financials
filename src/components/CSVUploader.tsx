@@ -5,7 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { IconFileUp, IconUploadCloud } from '@/components/ui/icons'
 import { parseCSV } from '@/lib/csv-parser'
 import { AccountDetectionResult } from '@/lib/account-detection'
-import { computeHeaderFingerprint } from '@/lib/import-header-fingerprint'
+import {
+  computeHeaderFingerprint,
+  computeHeaderSignature,
+} from '@/lib/import-header-fingerprint'
 import {
   buildMappingPayload,
   detectMappingFromHeaders,
@@ -13,7 +16,13 @@ import {
   validateMapping,
 } from '@/lib/import-mapping'
 import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-to-canonical'
-import { AmountStrategy, CSVRow, ImportFieldMapping, ImportRecord } from '@/types'
+import { detectDateFormatFromRows, type DateFormatHint } from '@/lib/import-date-format'
+import {
+  ALLOWED_POSTING_STATUSES,
+  normalizeStatusKey,
+  type StatusMappingValue,
+} from '@/lib/import-status'
+import { AmountStrategy, CSVRow, ImportFieldMapping, ImportProfile, ImportRecord } from '@/types'
 import { apiRequest } from '@/lib/api-client'
 import AlertBanner from '@/components/AlertBanner'
 import { Button } from '@/components/ui/Button'
@@ -34,6 +43,7 @@ export default function CSVUploader({
   const [parsedRows, setParsedRows] = useState<CSVRow[]>([])
   const [parsedHeaders, setParsedHeaders] = useState<string[]>([])
   const [headerFingerprint, setHeaderFingerprint] = useState<string | null>(null)
+  const [headerSignature, setHeaderSignature] = useState<string | null>(null)
   const [mapping, setMapping] = useState<ImportFieldMapping>({
     date: null,
     amount: null,
@@ -60,12 +70,17 @@ export default function CSVUploader({
   const [accountTouched, setAccountTouched] = useState(false)
   const [accountSuggestion, setAccountSuggestion] = useState<AccountDetectionResult | null>(null)
   const [detectionLoading, setDetectionLoading] = useState(false)
+  const [detectedInstitution, setDetectedInstitution] = useState<string | null>(null)
   const [currentImport, setCurrentImport] = useState<ImportRecord | null>(null)
   const [previewResult, setPreviewResult] = useState<{
     transactions: CanonicalImportRow[]
     errors: Array<{ rowNumber: number; field: string; message: string }>
   }>({ transactions: [], errors: [] })
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [statusValues, setStatusValues] = useState<Array<{ value: string; key: string }>>([])
+  const [statusMap, setStatusMap] = useState<Record<string, StatusMappingValue | ''>>({})
+  const [skipInvalidRows, setSkipInvalidRows] = useState(false)
+  const [importProfile, setImportProfile] = useState<ImportProfile | null>(null)
   const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
   const confidenceThreshold = 0.75
@@ -134,9 +149,15 @@ export default function CSVUploader({
     setParsedRows([])
     setParsedHeaders([])
     setHeaderFingerprint(null)
+    setHeaderSignature(null)
     setCurrentImport(null)
     setAccountSuggestion(null)
     setAccountTouched(false)
+    setDetectedInstitution(null)
+    setStatusValues([])
+    setStatusMap({})
+    setSkipInvalidRows(false)
+    setImportProfile(null)
     const shouldAutoSelect = true
     if (searchParams.get('import_id')) {
       const params = new URLSearchParams(searchParams.toString())
@@ -164,11 +185,14 @@ export default function CSVUploader({
       }
 
       const fingerprint = headers.length > 0 ? await computeHeaderFingerprint(headers) : null
+      const signature =
+        headers.length > 0 ? await computeHeaderSignature({ headers, rows: allRows }) : null
       const detected = detectMappingFromHeaders(headers)
 
       setParsedRows(allRows)
       setParsedHeaders(headers)
       setHeaderFingerprint(fingerprint)
+      setHeaderSignature(signature)
       setMapping(normalizeImportMapping(detected.mapping))
       setAmountStrategy(detected.amountStrategy)
       setMappingId(null)
@@ -177,7 +201,7 @@ export default function CSVUploader({
       setMappingDirty(false)
       setShowMoreFields(false)
 
-      if (firstFile && fingerprint) {
+      if (firstFile && (fingerprint || signature)) {
         setDetectionLoading(true)
         try {
           const fileText = await firstFile.text()
@@ -186,11 +210,17 @@ export default function CSVUploader({
           }>('/api/imports/detect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileText, headerFingerprint: fingerprint }),
+            body: JSON.stringify({
+              fileText,
+              headerFingerprint: fingerprint,
+              headerSignature: signature,
+            }),
           })
 
           const detection = detectionResponse.detection
           setAccountSuggestion(detection)
+          const fallbackInstitution = fileText.toLowerCase().includes('relay') ? 'Relay' : null
+          setDetectedInstitution(detection.detected?.institution ?? fallbackInstitution)
 
           if (shouldAutoSelect) {
             if (detection.suggestedAccountId && detection.confidence >= confidenceThreshold) {
@@ -314,6 +344,50 @@ export default function CSVUploader({
   }, [accountId, headerFingerprint])
 
   useEffect(() => {
+    if (!headerSignature) return
+    const institution = detectedInstitution?.toLowerCase() === 'relay' ? 'Relay' : null
+    if (!institution) return
+    let cancelled = false
+
+    const loadProfile = async () => {
+      try {
+        const result = await apiRequest<{ profile: ImportProfile | null }>(
+          `/api/import-profiles?institution=${encodeURIComponent(
+            institution
+          )}&header_signature=${encodeURIComponent(headerSignature)}`
+        )
+        if (cancelled) return
+        if (result.profile) {
+          setImportProfile(result.profile)
+          if (!mappingDirty) {
+            setMapping(normalizeImportMapping(result.profile.column_map))
+            const strategy =
+              typeof result.profile.transforms?.amountStrategy === 'string'
+                ? (result.profile.transforms.amountStrategy as AmountStrategy)
+                : null
+            if (strategy) {
+              setAmountStrategy(strategy)
+            }
+            const profileStatusMap =
+              (result.profile.status_map as Record<string, string> | null) ?? {}
+            setStatusMap(profileStatusMap)
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[ingest] Import profile lookup failed', err)
+        }
+      }
+    }
+
+    void loadProfile()
+
+    return () => {
+      cancelled = true
+    }
+  }, [detectedInstitution, headerSignature, mappingDirty])
+
+  useEffect(() => {
     if (!currentImport?.id) return
     if (['succeeded', 'failed', 'canceled'].includes(currentImport.status)) return
 
@@ -346,6 +420,9 @@ export default function CSVUploader({
           mapping,
           amountStrategy,
           accountId: accountId || null,
+          sourceSystem: detectedInstitution?.toLowerCase() === 'relay' ? 'relay' : 'manual',
+          statusMap: sanitizedStatusMap,
+          dateFormat: detectedDateFormat,
         })
         if (!cancelled) {
           setPreviewResult(result)
@@ -369,7 +446,42 @@ export default function CSVUploader({
     return () => {
       cancelled = true
     }
-  }, [parsedRows, mapping, amountStrategy, accountId])
+  }, [parsedRows, mapping, amountStrategy, accountId, statusMap, detectedInstitution])
+
+  useEffect(() => {
+    if (!mapping.status) {
+      setStatusValues([])
+      setStatusMap({})
+      return
+    }
+
+    const valueMap = new Map<string, string>()
+    for (const row of parsedRows) {
+      const raw = row[mapping.status]
+      if (!raw) continue
+      const trimmed = raw.trim()
+      if (!trimmed) continue
+      const key = normalizeStatusKey(trimmed)
+      if (!valueMap.has(key)) {
+        valueMap.set(key, trimmed)
+      }
+    }
+
+    const values = Array.from(valueMap.entries()).map(([key, value]) => ({
+      key,
+      value,
+    }))
+    setStatusValues(values)
+    setStatusMap((prev) => {
+      const next = { ...prev }
+      for (const entry of values) {
+        if (!next[entry.key]) {
+          next[entry.key] = ''
+        }
+      }
+      return next
+    })
+  }, [parsedRows, mapping.status])
 
   const previewErrorSummary = useMemo(() => {
     if (parsedRows.length === 0 || previewResult.errors.length === 0) {
@@ -395,12 +507,44 @@ export default function CSVUploader({
     }
   }, [parsedRows.length, previewResult.errors])
 
+  const statusMappingMissing = useMemo(() => {
+    if (!mapping.status || statusValues.length === 0) return []
+    return statusValues.filter((status) => !statusMap[status.key])
+  }, [mapping.status, statusMap, statusValues])
+
+  const detectedDateFormat = useMemo(() => {
+    const detected = detectDateFormatFromRows(parsedRows, mapping.date)
+    if (detected) return detected
+    const profileFormat = importProfile?.transforms?.dateFormat
+    if (profileFormat && ['ymd', 'mdy', 'dmy'].includes(String(profileFormat))) {
+      return profileFormat as DateFormatHint
+    }
+    return null
+  }, [parsedRows, mapping.date, importProfile])
+
+  const sanitizedStatusMap = useMemo(() => {
+    const cleaned: Record<string, StatusMappingValue> = {}
+    for (const [key, value] of Object.entries(statusMap)) {
+      if (value && value !== '') {
+        cleaned[key] = value as StatusMappingValue
+      }
+    }
+    return cleaned
+  }, [statusMap])
+
   const updateMappingField = (field: keyof ImportFieldMapping, value: string) => {
     setMapping((prev) => ({
       ...prev,
       [field]: value || null,
     }))
     setMappingDirty(true)
+  }
+
+  const updateStatusMapping = (key: string, value: string) => {
+    setStatusMap((prev) => ({
+      ...prev,
+      [key]: value,
+    }))
   }
 
   const handleUpload = async () => {
@@ -424,12 +568,24 @@ export default function CSVUploader({
         throw new Error('Header fingerprint is unavailable. Re-parse the file.')
       }
 
+      if (!headerSignature) {
+        throw new Error('Header signature is unavailable. Re-parse the file.')
+      }
+
       if (!mappingValidation.isValid) {
         throw new Error(mappingValidation.errors.join(' '))
       }
 
       if (previewLoading) {
         throw new Error('Preview is still loading. Please wait.')
+      }
+
+      if (statusMappingMissing.length > 0) {
+        throw new Error('Map all status values before importing.')
+      }
+
+      if (previewResult.errors.length > 0 && !skipInvalidRows) {
+        throw new Error('Resolve the preflight errors or skip invalid rows before importing.')
       }
 
       if (previewResult.transactions.length === 0) {
@@ -468,6 +624,29 @@ export default function CSVUploader({
       formData.append('canonicalRows', JSON.stringify(previewResult.transactions))
       formData.append('totalRows', String(parsedRows.length))
       formData.append('errorRows', String(previewResult.errors.length))
+      formData.append('headerSignature', headerSignature)
+      formData.append('statusMap', JSON.stringify(sanitizedStatusMap))
+      if (detectedDateFormat) {
+        formData.append('dateFormat', detectedDateFormat)
+      }
+      formData.append(
+        'preflight',
+        JSON.stringify({
+          mapping,
+          amountStrategy,
+          headerFingerprint,
+          headerSignature,
+          statusMap: sanitizedStatusMap,
+          dateFormat: detectedDateFormat,
+          errors: previewResult.errors,
+          skippedInvalidRows: skipInvalidRows,
+          detectedInstitution,
+        })
+      )
+      formData.append(
+        'sourceSystem',
+        detectedInstitution?.toLowerCase() === 'relay' ? 'relay' : 'manual'
+      )
       if (mappingTemplateId) {
         formData.append('mappingId', mappingTemplateId)
       }
@@ -886,6 +1065,52 @@ export default function CSVUploader({
               </div>
             </div>
           )}
+
+          {mapping.status && (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Status mapping</p>
+                <p className="text-xs text-slate-500">
+                  Map each CSV status to pending, posted, reconciled, or ignore.
+                </p>
+              </div>
+              {statusValues.length === 0 && (
+                <p className="text-xs text-slate-500">No status values detected yet.</p>
+              )}
+              {statusValues.length > 0 && statusMappingMissing.length > 0 && (
+                <AlertBanner
+                  variant="error"
+                  title="Status mapping required"
+                  message="Every status value must be mapped or ignored before import."
+                />
+              )}
+              {statusValues.length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {statusValues.map((status) => (
+                    <label
+                      key={status.key}
+                      className="flex flex-col gap-2 text-xs text-slate-600"
+                    >
+                      <span className="font-semibold text-slate-700">{status.value}</span>
+                      <Select
+                        value={statusMap[status.key] ?? ''}
+                        onChange={(event) => updateStatusMapping(status.key, event.target.value)}
+                        className="w-full text-xs"
+                      >
+                        <option value="">Select mapping</option>
+                        {ALLOWED_POSTING_STATUSES.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                        <option value="ignore">Ignore (store raw only)</option>
+                      </Select>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -908,6 +1133,8 @@ export default function CSVUploader({
                 !mappingValidation.isValid ||
                 previewLoading ||
                 previewResult.transactions.length === 0 ||
+                (previewResult.errors.length > 0 && !skipInvalidRows) ||
+                statusMappingMissing.length > 0 ||
                 ['queued', 'running'].includes(currentImport?.status ?? '')
               }
               variant="primary"
@@ -915,6 +1142,26 @@ export default function CSVUploader({
               {uploading ? 'Importing...' : 'Import transactions'}
             </Button>
           </div>
+
+          {previewResult.errors.length > 0 && (
+            <AlertBanner
+              variant="error"
+              title="Preflight errors detected"
+              message={`We found ${previewResult.errors.length} issues. Resolve them or skip invalid rows to proceed.`}
+            />
+          )}
+
+          {previewResult.errors.length > 0 && (
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300"
+                checked={skipInvalidRows}
+                onChange={(event) => setSkipInvalidRows(event.target.checked)}
+              />
+              Skip invalid rows and import the rest.
+            </label>
+          )}
 
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="max-h-96 overflow-y-auto">
@@ -1078,6 +1325,23 @@ export default function CSVUploader({
               </div>
             )}
           </div>
+          {previewResult.errors.length > 0 && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+              <p className="font-semibold">Row-level issues</p>
+              <ul className="mt-2 space-y-1">
+                {previewResult.errors.slice(0, 10).map((issue, idx) => (
+                  <li key={`${issue.rowNumber}-${issue.field}-${idx}`}>
+                    Row {issue.rowNumber}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+              {previewResult.errors.length > 10 && (
+                <p className="mt-2 text-rose-600">
+                  Showing first 10 of {previewResult.errors.length} issues.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
