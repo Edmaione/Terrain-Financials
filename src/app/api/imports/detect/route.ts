@@ -5,7 +5,7 @@ import { detectAccountFromCsv } from '@/lib/account-detection'
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { fileText, headerFingerprint } = body ?? {}
+    const { fileText, headerFingerprint, headerSignature } = body ?? {}
 
     if (!fileText || typeof fileText !== 'string') {
       return NextResponse.json(
@@ -47,8 +47,10 @@ export async function POST(request: Request) {
       accounts: accounts || [],
       mappings: mappings || [],
       headerSignature:
-        typeof headerFingerprint === 'string' && headerFingerprint.length > 0
-          ? headerFingerprint
+        typeof headerSignature === 'string' && headerSignature.length > 0
+          ? headerSignature
+          : typeof headerFingerprint === 'string' && headerFingerprint.length > 0
+            ? headerFingerprint
           : null,
     })
 

@@ -25,3 +25,34 @@ export async function computeHeaderFingerprint(headers: string[]): Promise<strin
   const { createHash } = await import('crypto');
   return createHash('sha256').update(payload).digest('hex');
 }
+
+export async function computeHeaderSignature({
+  headers,
+  rows,
+  sampleSize = 5,
+}: {
+  headers: string[]
+  rows: Array<Record<string, string>>
+  sampleSize?: number
+}): Promise<string> {
+  const normalizedHeaders = normalizeHeaders(headers)
+  const sampleRows = rows.slice(0, sampleSize).map((row) =>
+    headers.map((header) => (row[header] ?? '').trim())
+  )
+  const payload = JSON.stringify({
+    headers: normalizedHeaders,
+    sampleRows,
+  })
+
+  if (globalThis.crypto?.subtle) {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(payload)
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', data)
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+  }
+
+  const { createHash } = await import('crypto')
+  return createHash('sha256').update(payload).digest('hex')
+}

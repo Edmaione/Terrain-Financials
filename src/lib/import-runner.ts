@@ -5,6 +5,8 @@ import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-
 import { validateMapping } from '@/lib/import-mapping'
 import { detectAndPairTransfers } from '@/lib/categorization-engine'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { type StatusMappingValue } from '@/lib/import-status'
+import { type DateFormatHint } from '@/lib/import-date-format'
 import { AmountStrategy, ImportFieldMapping, ParsedTransaction } from '@/types'
 
 const CHUNK_SIZE = 500
@@ -21,6 +23,13 @@ type ImportRow = {
 type InsertedTransactionRow = {
   id: string
   import_row_hash: string | null
+}
+
+type ImportRowIssue = {
+  rowNumber: number | null
+  severity: 'error' | 'warning'
+  message: string
+  rawRow?: Record<string, string> | null
 }
 
 async function fetchImport(importId: string) {
@@ -50,7 +59,11 @@ async function markImportFailed(importId: string, message: string) {
 
 async function insertTransactions(items: PreparedTransaction[]) {
   if (items.length === 0) {
-    return { insertedRows: [] as InsertedTransactionRow[], skippedCount: 0 }
+    return {
+      insertedRows: [] as InsertedTransactionRow[],
+      skippedCount: 0,
+      errors: [] as ImportRowIssue[],
+    }
   }
 
   const insertPayload = items.map((item) => item.transaction)
@@ -63,7 +76,46 @@ async function insertTransactions(items: PreparedTransaction[]) {
     .select('id, import_row_hash')
 
   if (error) {
-    throw new Error(error.message)
+    const fallbackRows: InsertedTransactionRow[] = []
+    const fallbackErrors: ImportRowIssue[] = []
+    for (const item of items) {
+      const { data: rowData, error: rowError } = await supabaseAdmin
+        .from('transactions')
+        .upsert([item.transaction], {
+          onConflict: 'import_id,import_row_hash',
+          ignoreDuplicates: true,
+        })
+        .select('id, import_row_hash')
+
+      if (rowError) {
+        const normalized = {
+          account_id: item.transaction.account_id,
+          date: item.transaction.date,
+          payee: item.transaction.payee,
+          amount: item.transaction.amount,
+          status: item.transaction.status ?? null,
+          source: item.transaction.source,
+          import_row_number: item.transaction.import_row_number,
+        }
+        fallbackErrors.push({
+          rowNumber: item.transaction.import_row_number ?? null,
+          severity: 'error',
+          message: rowError.message,
+          rawRow: {
+            raw: item.transaction.raw_csv_data ?? null,
+            normalized,
+          },
+        })
+      } else if (rowData && rowData.length > 0) {
+        fallbackRows.push(rowData[0] as InsertedTransactionRow)
+      }
+    }
+
+    return {
+      insertedRows: fallbackRows,
+      skippedCount: insertPayload.length - fallbackRows.length,
+      errors: fallbackErrors,
+    }
   }
 
   const insertedRows = (data || []) as InsertedTransactionRow[]
@@ -94,7 +146,7 @@ async function insertTransactions(items: PreparedTransaction[]) {
     }
   }
 
-  return { insertedRows, skippedCount }
+  return { insertedRows, skippedCount, errors: [] as ImportRowIssue[] }
 }
 
 async function updateTransactions(items: Array<PreparedTransaction & { id: string }>) {
@@ -152,6 +204,8 @@ export async function runCsvImport({
   fileText,
   mapping,
   amountStrategy,
+  statusMap,
+  dateFormat,
   sourceSystem,
   canonicalRows,
   totalRows,
@@ -162,6 +216,8 @@ export async function runCsvImport({
   fileText?: string
   mapping: ImportFieldMapping
   amountStrategy: AmountStrategy
+  statusMap?: Record<string, StatusMappingValue>
+  dateFormat?: DateFormatHint | null
   sourceSystem?: ParsedTransaction['source_system']
   canonicalRows?: CanonicalImportRow[]
   totalRows?: number
@@ -169,6 +225,7 @@ export async function runCsvImport({
 }) {
   const debugIngest = process.env.INGEST_DEBUG === 'true'
   const shouldLogDescriptionStats = process.env.NODE_ENV !== 'production'
+  const importRowIssues: ImportRowIssue[] = []
 
   try {
     const validation = validateMapping({ mapping, amountStrategy })
@@ -219,6 +276,8 @@ export async function runCsvImport({
         sourceSystem,
         accountId,
         importId,
+        statusMap,
+        dateFormat,
       })
       parsedTransactions = transformResult.transactions
       transformErrors = transformResult.errors
@@ -277,7 +336,17 @@ export async function runCsvImport({
         debug: debugIngest,
       })
 
-      errorRows += errors.length
+      if (errors.length > 0) {
+        errorRows += errors.length
+        importRowIssues.push(
+          ...errors.map((entry) => ({
+            rowNumber: entry.rowNumber,
+            severity: 'error' as const,
+            message: entry.message,
+            rawRow: entry.rawRow ?? null,
+          }))
+        )
+      }
       const chunkWithDescriptions = preparedTransactions.filter(
         (item) => Boolean(item.transaction.description)
       ).length
@@ -316,9 +385,20 @@ export async function runCsvImport({
 
       const { inserts, updates } = planCsvImport(preparedTransactions, existingRecords)
 
-      const { insertedRows: inserted, skippedCount } = await insertTransactions(inserts)
+      const { insertedRows: inserted, skippedCount, errors: insertErrors } =
+        await insertTransactions(inserts)
       insertedRows += inserted.length
       skippedRows += skippedCount
+      if (insertErrors.length > 0) {
+        errorRows += insertErrors.length
+        importRowIssues.push(...insertErrors)
+        await supabaseAdmin
+          .from('imports')
+          .update({
+            last_error: insertErrors[0]?.message ?? 'Failed to insert some rows.',
+          })
+          .eq('id', importId)
+      }
 
       if (updates.length > 0) {
         const updatedCount = await updateTransactions(updates)
@@ -336,6 +416,18 @@ export async function runCsvImport({
           error_rows: errorRows,
         })
         .eq('id', importId)
+    }
+
+    if (importRowIssues.length > 0) {
+      await supabaseAdmin.from('import_row_issues').insert(
+        importRowIssues.map((issue) => ({
+          import_id: importId,
+          row_number: issue.rowNumber,
+          severity: issue.severity,
+          message: issue.message,
+          raw_row: issue.rawRow ?? null,
+        }))
+      )
     }
 
     await supabaseAdmin
@@ -365,7 +457,7 @@ export async function runCsvImport({
     if (shouldLogDescriptionStats) {
       console.info('[ingest] Description mapping summary', {
         importId,
-        totalRows: parsedCsv.rows.length,
+        totalRows: totalRowCount,
         descriptionPopulated,
         descriptionMissing,
       })

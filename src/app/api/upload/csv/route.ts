@@ -4,6 +4,7 @@ import { runCsvImport } from '@/lib/import-runner'
 import { CanonicalImportRow } from '@/lib/import/transform-to-canonical'
 import { normalizeImportMapping, validateMapping } from '@/lib/import-mapping'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { ALLOWED_POSTING_STATUSES, type StatusMappingValue } from '@/lib/import-status'
 import { AmountStrategy, ImportFieldMapping } from '@/types'
 
 export async function POST(request: NextRequest) {
@@ -14,8 +15,12 @@ export async function POST(request: NextRequest) {
     const mappingPayload = formData.get('mapping')
     const amountStrategy = formData.get('amountStrategy')
     const headerFingerprint = formData.get('headerFingerprint')
+    const headerSignature = formData.get('headerSignature')
     const mappingId = formData.get('mappingId')
     const sourceSystem = formData.get('sourceSystem')
+    const statusMapPayload = formData.get('statusMap')
+    const preflightPayload = formData.get('preflight')
+    const dateFormatPayload = formData.get('dateFormat')
     const canonicalPayload = formData.get('canonicalRows')
     const totalRowsPayload = formData.get('totalRows')
     const errorRowsPayload = formData.get('errorRows')
@@ -57,6 +62,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!headerSignature || typeof headerSignature !== 'string') {
+      return NextResponse.json(
+        { ok: false, error: 'Header signature is required.' },
+        { status: 400 }
+      )
+    }
+
     let mapping: ImportFieldMapping
     try {
       mapping = normalizeImportMapping(JSON.parse(mappingPayload))
@@ -84,6 +96,9 @@ export async function POST(request: NextRequest) {
     let canonicalRows: CanonicalImportRow[] | undefined
     let totalRows: number | undefined
     let errorRows: number | undefined
+    let statusMap: Record<string, StatusMappingValue> | null = null
+    let preflight: Record<string, unknown> | null = null
+    let dateFormat: string | null = null
     let detection:
       | {
           suggestedAccountId: string | null
@@ -129,6 +144,42 @@ export async function POST(request: NextRequest) {
       errorRows = Number.isFinite(parsed) ? parsed : undefined
     }
 
+    if (statusMapPayload && typeof statusMapPayload === 'string') {
+      try {
+        statusMap = JSON.parse(statusMapPayload) as Record<string, StatusMappingValue>
+        const allowed = new Set([...ALLOWED_POSTING_STATUSES, 'ignore'])
+        for (const value of Object.values(statusMap ?? {})) {
+          if (typeof value !== 'string' || !allowed.has(value)) {
+            return NextResponse.json(
+              { ok: false, error: 'Status mapping contains invalid values.' },
+              { status: 400 }
+            )
+          }
+        }
+      } catch (error) {
+        return NextResponse.json(
+          { ok: false, error: 'Invalid status mapping payload.' },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (preflightPayload && typeof preflightPayload === 'string') {
+      try {
+        preflight = JSON.parse(preflightPayload)
+      } catch (error) {
+        return NextResponse.json(
+          { ok: false, error: 'Invalid preflight payload.' },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (dateFormatPayload && typeof dateFormatPayload === 'string') {
+      const allowedFormats = new Set(['ymd', 'mdy', 'dmy'])
+      dateFormat = allowedFormats.has(dateFormatPayload) ? dateFormatPayload : null
+    }
+
     if (detectionPayload && typeof detectionPayload === 'string') {
       try {
         detection = JSON.parse(detectionPayload)
@@ -157,6 +208,8 @@ export async function POST(request: NextRequest) {
           fileText: buffer.toString('utf8'),
           mapping,
           amountStrategy: amountStrategy as AmountStrategy,
+          statusMap: statusMap ?? undefined,
+          dateFormat,
           sourceSystem:
             typeof sourceSystem === 'string' && sourceSystem.length > 0 ? sourceSystem : undefined,
           canonicalRows,
@@ -185,6 +238,7 @@ export async function POST(request: NextRequest) {
         file_size: file.size,
         file_sha256: fileSha256,
         status: 'queued',
+        preflight: preflight ?? {},
         detected_institution: detection?.detected?.institution ?? null,
         detected_account_last4: detection?.detected?.accountLast4 ?? null,
         detected_account_number: detection?.detected?.accountNumber ?? null,
@@ -219,6 +273,19 @@ export async function POST(request: NextRequest) {
         { ok: false, error: error?.message ?? 'Failed to create import.' },
         { status: 500 }
       )
+    }
+
+    if (preflight && Array.isArray(preflight.errors) && preflight.errors.length > 0) {
+      const issues = preflight.errors.map((issue: any) => ({
+        import_id: createdImport.id,
+        row_number: issue.rowNumber ?? null,
+        severity: 'error',
+        message: issue.message ?? 'Preflight error',
+        raw_row: issue.rawRow ?? null,
+      }))
+      if (issues.length > 0) {
+        await supabaseAdmin.from('import_row_issues').insert(issues)
+      }
     }
 
     const { error: attemptError } = await supabaseAdmin.from('import_attempts').insert({
@@ -289,12 +356,60 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let profileId: string | null = null
+    if (sourceSystem === 'relay' && headerSignature) {
+      const profilePayload = {
+        institution: 'Relay',
+        header_signature: headerSignature,
+        column_map: mapping,
+        transforms: {
+          amountStrategy,
+          dateFormat: dateFormat ?? preflight?.dateFormat ?? null,
+        },
+        status_map: statusMap ?? {},
+        updated_at: new Date().toISOString(),
+      }
+
+      const { data: existingProfile } = await supabaseAdmin
+        .from('import_profiles')
+        .select('id')
+        .eq('institution', profilePayload.institution)
+        .eq('header_signature', profilePayload.header_signature)
+        .maybeSingle()
+
+      if (existingProfile?.id) {
+        const { data: updatedProfile } = await supabaseAdmin
+          .from('import_profiles')
+          .update(profilePayload)
+          .eq('id', existingProfile.id)
+          .select('id')
+          .single()
+        profileId = updatedProfile?.id ?? existingProfile.id
+      } else {
+        const { data: createdProfile } = await supabaseAdmin
+          .from('import_profiles')
+          .insert(profilePayload)
+          .select('id')
+          .single()
+        profileId = createdProfile?.id ?? null
+      }
+
+      if (profileId) {
+        await supabaseAdmin
+          .from('imports')
+          .update({ profile_id: profileId })
+          .eq('id', createdImport.id)
+      }
+    }
+
     void runCsvImport({
       importId: createdImport.id,
       accountId,
       fileText: buffer.toString('utf8'),
       mapping,
       amountStrategy: amountStrategy as AmountStrategy,
+      statusMap: statusMap ?? undefined,
+      dateFormat,
       sourceSystem:
         typeof sourceSystem === 'string' && sourceSystem.length > 0 ? sourceSystem : undefined,
       canonicalRows,

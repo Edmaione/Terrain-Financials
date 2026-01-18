@@ -1,7 +1,7 @@
 // Type definitions for Landscape Finance
 
 export type AccountType = 'checking' | 'savings' | 'credit_card' | 'loan' | 'investment';
-export type TransactionStatus = 'SETTLED' | 'PENDING' | 'APPROVED' | 'CANCELLED';
+export type TransactionStatus = 'pending' | 'posted' | 'reconciled';
 export type PostingStatus = 'pending' | 'posted' | 'reconciled';
 export type TxnStatus = 'draft' | 'posted' | 'void';
 export type ReviewStatus = 'needs_review' | 'approved';
@@ -98,7 +98,7 @@ export interface Transaction {
   transfer_group_id?: string | null;
   payment_method?: string;
   reference?: string;
-  status: TransactionStatus | PostingStatus;
+  status: TransactionStatus | PostingStatus | null;
   txn_status?: TxnStatus | null;
   source?: SourceSystem | null;
   source_id?: string | null;
@@ -254,7 +254,8 @@ export interface ParsedTransaction {
   amount: number;
   category_name?: string | null;
   reference?: string | null;
-  status?: TransactionStatus;
+  status?: PostingStatus | null;
+  status_raw?: string | null;
   source_system?: SourceSystem;
   account_number?: string;
   balance?: number;
@@ -317,6 +318,19 @@ export interface ImportRecord {
   detection_method?: string | null;
   detection_confidence?: number | null;
   detection_reason?: string | null;
+  profile_id?: string | null;
+  preflight?: Record<string, unknown> | null;
+}
+
+export interface ImportProfile {
+  id: string;
+  institution: string;
+  header_signature: string;
+  column_map: ImportFieldMapping;
+  transforms: Record<string, unknown>;
+  status_map: Record<string, string>;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ReviewAction {

@@ -106,6 +106,10 @@ export function validateMapping({
     errors.push('Map a date column to continue.')
   }
 
+  if (!mapping.payee && !mapping.description) {
+    errors.push('Map a payee or description column to continue.')
+  }
+
   if (amountStrategy === 'signed') {
     if (!mapping.amount) {
       errors.push('Map a signed amount column or switch to inflow/outflow.')

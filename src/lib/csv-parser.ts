@@ -9,7 +9,11 @@ export async function parseCSV(file: File): Promise<ParsedCSV> {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
       header: true,
-      skipEmptyLines: true,
+      skipEmptyLines: 'greedy',
+      delimiter: '',
+      newline: '',
+      transformHeader: (header) => header.replace(/^\uFEFF/, '').trim(),
+      beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
       complete: (results) => {
         try {
           const rows = results.data as CSVRow[];
@@ -32,7 +36,11 @@ export async function parseCSV(file: File): Promise<ParsedCSV> {
 export function parseCSVText(csvText: string): ParsedCSV {
   const results = Papa.parse(csvText, {
     header: true,
-    skipEmptyLines: true,
+    skipEmptyLines: 'greedy',
+    delimiter: '',
+    newline: '',
+    transformHeader: (header) => header.replace(/^\uFEFF/, '').trim(),
+    beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
   });
 
   if (results.errors.length > 0) {

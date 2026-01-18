@@ -130,6 +130,23 @@ CREATE TABLE import_batches (
 -- ============================================================================
 -- IMPORTS TABLE
 -- ============================================================================
+CREATE TABLE import_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution TEXT NOT NULL,
+    header_signature TEXT NOT NULL,
+    column_map JSONB NOT NULL DEFAULT '{}'::jsonb,
+    transforms JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status_map JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX import_profiles_unique
+ON import_profiles (institution, header_signature);
+
+-- ============================================================================
+-- IMPORTS TABLE
+-- ============================================================================
 CREATE TABLE imports (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     account_id UUID NOT NULL,
@@ -143,6 +160,8 @@ CREATE TABLE imports (
     canceled_at TIMESTAMP WITH TIME ZONE,
     started_at TIMESTAMP WITH TIME ZONE,
     finished_at TIMESTAMP WITH TIME ZONE,
+    profile_id UUID REFERENCES import_profiles(id),
+    preflight JSONB NOT NULL DEFAULT '{}'::jsonb,
     total_rows INTEGER,
     processed_rows INTEGER DEFAULT 0,
     inserted_rows INTEGER DEFAULT 0,
@@ -156,6 +175,19 @@ CREATE TABLE imports (
     detection_method TEXT,
     detection_confidence NUMERIC,
     detection_reason TEXT
+);
+
+-- ============================================================================
+-- IMPORT ROW ISSUES TABLE
+-- ============================================================================
+CREATE TABLE import_row_issues (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    import_id UUID NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+    row_number INTEGER,
+    severity TEXT NOT NULL,
+    message TEXT NOT NULL,
+    raw_row JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ============================================================================
