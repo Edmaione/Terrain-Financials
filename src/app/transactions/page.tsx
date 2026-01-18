@@ -101,7 +101,7 @@ async function getTransactions({
     .from('transactions')
     .select(`
       *,
-      accounts:accounts!inner(name, type, institution),
+      accounts:account_id(name, type, institution),
       customer:customers!transactions_customer_id_fkey(name),
       vendor:vendors!transactions_vendor_id_fkey(name),
       transfer_account:accounts!transactions_transfer_account_id_fkey(name),
