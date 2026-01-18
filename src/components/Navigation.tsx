@@ -14,6 +14,7 @@ export default function Navigation() {
     { href: '/upload', label: 'Upload CSV' },
     { href: '/transactions', label: 'Transactions' },
     { href: '/categories', label: 'Categories' },
+    { href: '/accounts', label: 'Accounts' },
     { href: '/reports', label: 'Reports' },
   ]
 
