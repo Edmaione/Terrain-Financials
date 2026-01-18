@@ -7,6 +7,8 @@ import { resolveAccountSelection } from '@/lib/accounts'
 import PageHeader from '@/components/PageHeader'
 import AlertBanner from '@/components/AlertBanner'
 import { buttonVariants } from '@/components/ui/Button'
+import AccountFilter from '@/components/AccountFilter'
+import { Account, AccountSummary } from '@/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,24 +73,28 @@ async function getTransactions({
   start,
   end,
   accountId,
+  status,
   query: searchQuery,
 }: {
   reviewed?: string
   range: string
   start?: string
   end?: string
-  accountId: string
+  accountId?: string
+  status?: string
   query?: string
 }) {
   const debugDataFlow = process.env.DEBUG_DATA_FLOW === 'true'
   const dateRange = getDateRange(range, start, end)
   const reviewedFilter =
     reviewed === 'true' ? true : reviewed === 'false' ? false : null
+  const statusFilter = status && status !== 'all' ? status : null
   const search = searchQuery?.trim() || null
   const appliedFilters = {
     accountId: accountId || null,
     reviewed: reviewedFilter,
     dateRange,
+    status: statusFilter,
     search,
   }
 
@@ -97,6 +103,9 @@ async function getTransactions({
     .select(`
       *,
       account:accounts!transactions_account_id_fkey(name),
+      customer:customers!transactions_customer_id_fkey(name),
+      vendor:vendors!transactions_vendor_id_fkey(name),
+      transfer_account:accounts!transactions_transfer_account_id_fkey(name),
       transfer_to_account:accounts!transactions_transfer_to_account_id_fkey(name),
       category:categories!category_id(name, section),
       subcategory:categories!subcategory_id(name, section),
@@ -107,6 +116,17 @@ async function getTransactions({
 
   if (accountId) {
     query = query.eq('account_id', accountId)
+  }
+  if (statusFilter) {
+    const statusCandidates = new Set<string>([statusFilter, statusFilter.toUpperCase()])
+    if (statusFilter === 'posted') {
+      statusCandidates.add('SETTLED')
+      statusCandidates.add('APPROVED')
+    }
+    if (statusFilter === 'pending') {
+      statusCandidates.add('PENDING')
+    }
+    query = query.in('status', Array.from(statusCandidates))
   }
   if (reviewedFilter === false) {
     query = query.eq('reviewed', false)
@@ -145,6 +165,92 @@ async function getTransactions({
   return { data: data || [], error: null, dateRange }
 }
 
+function formatLastUpdate(dateString?: string | null) {
+  if (!dateString) {
+    return 'No recent activity'
+  }
+  const formatted = new Date(dateString).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  return `Last activity ${formatted}`
+}
+
+async function getAccountSummaries(
+  accounts: Account[]
+): Promise<{ summaries: AccountSummary[]; latestDate: string | null }> {
+  if (accounts.length === 0) {
+    return { summaries: [], latestDate: null }
+  }
+
+  const accountIds = accounts.map((account) => account.id)
+  const { data, error } = await supabaseAdmin
+    .from('transactions')
+    .select('account_id, date, reviewed, review_status, status')
+    .in('account_id', accountIds)
+
+  if (error || !data) {
+    console.error('Error fetching account summaries:', error)
+    return {
+      summaries: accounts.map((account) => ({
+        account,
+        balance: account.current_balance ?? 0,
+        pending_count: 0,
+        unreviewed_count: 0,
+        last_transaction_date: 'No recent activity',
+      })),
+      latestDate: null,
+    }
+  }
+
+  const summaryByAccount = new Map<string, AccountSummary>()
+  const lastDateByAccount = new Map<string, string>()
+  accounts.forEach((account) => {
+    summaryByAccount.set(account.id, {
+      account,
+      balance: account.current_balance ?? 0,
+      pending_count: 0,
+      unreviewed_count: 0,
+      last_transaction_date: 'No recent activity',
+    })
+  })
+
+  for (const transaction of data) {
+    const summary = summaryByAccount.get(transaction.account_id)
+    if (!summary) continue
+
+    const normalizedStatus =
+      typeof transaction.status === 'string' ? transaction.status.toLowerCase() : ''
+
+    if (normalizedStatus === 'pending') {
+      summary.pending_count += 1
+    }
+
+    if (transaction.reviewed === false || transaction.review_status === 'needs_review') {
+      summary.unreviewed_count += 1
+    }
+
+    if (transaction.date) {
+      const currentLast = lastDateByAccount.get(transaction.account_id)
+      if (!currentLast || new Date(transaction.date) > new Date(currentLast)) {
+        lastDateByAccount.set(transaction.account_id, transaction.date)
+      }
+    }
+  }
+
+  const summaries = Array.from(summaryByAccount.values()).map((summary) => {
+    const lastDate = lastDateByAccount.get(summary.account.id)
+    return {
+      ...summary,
+      last_transaction_date: formatLastUpdate(lastDate),
+    }
+  })
+  const latestDate = Array.from(lastDateByAccount.values()).sort().pop() ?? null
+
+  return { summaries, latestDate }
+}
+
 async function getCategories() {
   const { data, error } = await supabaseAdmin
     .from('categories')
@@ -169,20 +275,23 @@ export default async function TransactionsPage({
     start?: string
     end?: string
     account_id?: string
+    status?: string
     q?: string
   }
 }) {
+  const isAllAccounts = searchParams.account_id === 'all'
   const { accounts, selectedAccount, needsRedirect } = await resolveAccountSelection(
-    searchParams.account_id
+    isAllAccounts ? undefined : searchParams.account_id
   )
 
   const activeRange = searchParams.range ?? 'last_3_months'
   const activeReviewed = searchParams.reviewed ?? 'false'
+  const activeStatus = searchParams.status ?? 'all'
 
   const needsDefaultFilters =
-    !searchParams.range || !searchParams.reviewed || !searchParams.account_id
+    !searchParams.range || !searchParams.reviewed || !searchParams.account_id || !searchParams.status
 
-  if (selectedAccount && (needsRedirect || needsDefaultFilters)) {
+  if (selectedAccount && !isAllAccounts && (needsRedirect || needsDefaultFilters)) {
     const params = new URLSearchParams()
     if (searchParams.q) {
       params.set('q', searchParams.q)
@@ -196,10 +305,11 @@ export default async function TransactionsPage({
     params.set('account_id', selectedAccount.id)
     params.set('range', activeRange)
     params.set('reviewed', activeReviewed)
+    params.set('status', activeStatus)
     redirect(`/transactions?${params.toString()}`)
   }
 
-  if (!selectedAccount) {
+  if (!selectedAccount && !isAllAccounts) {
     return (
       <AlertBanner
         variant="error"
@@ -213,22 +323,58 @@ export default async function TransactionsPage({
   if (activeReviewed) {
     allTimeParams.set('reviewed', activeReviewed)
   }
-  if (selectedAccount) {
+  if (activeStatus) {
+    allTimeParams.set('status', activeStatus)
+  }
+  if (isAllAccounts) {
+    allTimeParams.set('account_id', 'all')
+  } else if (selectedAccount) {
     allTimeParams.set('account_id', selectedAccount.id)
   }
   if (searchParams.q) {
     allTimeParams.set('q', searchParams.q)
   }
   allTimeParams.set('range', 'all')
+  if (needsDefaultFilters && isAllAccounts) {
+    const params = new URLSearchParams(allTimeParams)
+    params.set('range', activeRange)
+    params.set('reviewed', activeReviewed)
+    params.set('status', activeStatus)
+    params.set('account_id', 'all')
+    redirect(`/transactions?${params.toString()}`)
+  }
   const { data: transactions, error, dateRange } = await getTransactions({
     reviewed: activeReviewed,
     range: activeRange,
     start: searchParams.start,
     end: searchParams.end,
-    accountId: selectedAccount?.id ?? '',
+    accountId: isAllAccounts ? undefined : selectedAccount?.id ?? '',
+    status: activeStatus,
     query: searchParams.q,
   })
   const categories = await getCategories()
+  const { summaries: accountSummaries, latestDate: latestAccountDate } =
+    await getAccountSummaries(accounts)
+  const allSummary: AccountSummary = {
+    account: {
+      id: 'all',
+      name: 'All accounts',
+      type: 'checking',
+      institution: 'All institutions',
+      is_active: true,
+      opening_balance: 0,
+      current_balance: accountSummaries.reduce((total, summary) => total + summary.balance, 0),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    balance: accountSummaries.reduce((total, summary) => total + summary.balance, 0),
+    pending_count: accountSummaries.reduce((total, summary) => total + summary.pending_count, 0),
+    unreviewed_count: accountSummaries.reduce(
+      (total, summary) => total + summary.unreviewed_count,
+      0
+    ),
+    last_transaction_date: formatLastUpdate(latestAccountDate),
+  }
 
   const lastUpdated = new Date().toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -240,7 +386,15 @@ export default async function TransactionsPage({
       : activeReviewed === 'false'
         ? 'Unreviewed'
         : 'All statuses'
-  const filterSummary = `${dateRange.label} · ${reviewedLabel}`
+  const statusLabel =
+    activeStatus === 'pending'
+      ? 'Pending'
+      : activeStatus === 'posted'
+        ? 'Posted'
+        : activeStatus === 'reconciled'
+          ? 'Reconciled'
+          : 'All statuses'
+  const filterSummary = `${dateRange.label} · ${reviewedLabel} · ${statusLabel}`
   const showDebugPanel = process.env.DEBUG_DATA_FLOW === 'true'
 
   const refreshParams = new URLSearchParams()
@@ -268,6 +422,12 @@ export default async function TransactionsPage({
         )}
       />
 
+      <AccountFilter
+        summaries={accountSummaries}
+        allSummary={allSummary}
+        selectedAccountId={isAllAccounts ? 'all' : selectedAccount?.id}
+      />
+
       <TransactionsFilters
         reviewed={activeReviewed}
         range={activeRange}
@@ -275,8 +435,9 @@ export default async function TransactionsPage({
         endDate={dateRange.end}
         lastUpdated={lastUpdated}
         accounts={accounts}
-        accountId={selectedAccount?.id}
+        accountId={isAllAccounts ? 'all' : selectedAccount?.id}
         query={searchParams.q}
+        status={activeStatus}
       />
 
       {error && (
@@ -316,7 +477,7 @@ export default async function TransactionsPage({
         filterSummary={filterSummary}
         allTimeHref={`/transactions?${allTimeParams.toString()}`}
         categories={categories}
-        accountId={selectedAccount?.id ?? ''}
+        accountId={isAllAccounts ? undefined : selectedAccount?.id ?? ''}
       />
     </div>
   )

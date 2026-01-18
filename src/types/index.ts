@@ -2,6 +2,7 @@
 
 export type AccountType = 'checking' | 'savings' | 'credit_card' | 'loan' | 'investment';
 export type TransactionStatus = 'SETTLED' | 'PENDING' | 'APPROVED' | 'CANCELLED';
+export type PostingStatus = 'pending' | 'posted' | 'reconciled';
 export type TxnStatus = 'draft' | 'posted' | 'void';
 export type ReviewStatus = 'needs_review' | 'approved';
 export type SourceSystem =
@@ -82,17 +83,21 @@ export interface Transaction {
   description?: string;
   memo?: string;
   amount: number;
+  customer_id?: string;
+  vendor_id?: string;
   category_id?: string;
   category_name?: string | null;
   subcategory_id?: string;
   primary_category_id?: string;
   job_id?: string;
   is_transfer: boolean;
+  paired_transaction_id?: string;
+  transfer_account_id?: string;
   transfer_to_account_id?: string;
   transfer_group_id?: string | null;
   payment_method?: string;
   reference?: string;
-  status: TransactionStatus;
+  status: TransactionStatus | PostingStatus;
   txn_status?: TxnStatus | null;
   source?: SourceSystem | null;
   source_id?: string | null;
@@ -112,6 +117,7 @@ export interface Transaction {
   review_status?: ReviewStatus | null;
   approved_at?: string | null;
   approved_by?: string | null;
+  applied_rule_id?: string | null;
   is_split?: boolean | null;
   posted_at?: string | null;
   notes?: string;
@@ -120,10 +126,16 @@ export interface Transaction {
   updated_at: string;
   // Joined fields
   account?: Account;
+  customer?: Customer;
+  vendor?: Vendor;
+  transfer_account?: Account;
   category?: Category;
   subcategory?: Category;
   job?: Job;
   ai_suggested_category_name?: string;
+  // Computed fields
+  spent?: number;
+  received?: number;
 }
 
 export interface CategorizationRule {
@@ -185,6 +197,27 @@ export interface StripePayment {
   created_at: string;
   // Joined fields
   job?: Job;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  category?: string;
+}
+
+export interface AccountSummary {
+  account: Account;
+  balance: number;
+  pending_count: number;
+  unreviewed_count: number;
+  last_transaction_date: string;
 }
 
 // CSV Upload types

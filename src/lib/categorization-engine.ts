@@ -297,3 +297,72 @@ export function detectTransactionType(
     isUtility,
   };
 }
+
+export async function detectAndPairTransfers(accountId: string, date: string) {
+  const { data: sourceTransactions, error: sourceError } = await supabaseAdmin
+    .from('transactions')
+    .select('id, amount, account_id, paired_transaction_id, is_transfer')
+    .eq('account_id', accountId)
+    .eq('date', date)
+    .is('paired_transaction_id', null);
+
+  if (sourceError || !sourceTransactions || sourceTransactions.length === 0) {
+    if (sourceError) {
+      console.error('[transfers] Failed to fetch source transactions', sourceError);
+    }
+    return [];
+  }
+
+  const { data: candidateTransactions, error: candidateError } = await supabaseAdmin
+    .from('transactions')
+    .select('id, amount, account_id, paired_transaction_id, is_transfer')
+    .neq('account_id', accountId)
+    .eq('date', date)
+    .is('paired_transaction_id', null);
+
+  if (candidateError || !candidateTransactions || candidateTransactions.length === 0) {
+    if (candidateError) {
+      console.error('[transfers] Failed to fetch candidate transactions', candidateError);
+    }
+    return [];
+  }
+
+  const usedCandidates = new Set<string>();
+  const paired: Array<{ source_id: string; paired_id: string }> = [];
+
+  for (const source of sourceTransactions) {
+    const match = candidateTransactions.find(
+      (candidate) =>
+        !usedCandidates.has(candidate.id) &&
+        Math.abs(source.amount + candidate.amount) < 0.01
+    );
+
+    if (!match) {
+      continue;
+    }
+
+    usedCandidates.add(match.id);
+    paired.push({ source_id: source.id, paired_id: match.id });
+
+    await Promise.all([
+      supabaseAdmin
+        .from('transactions')
+        .update({
+          is_transfer: true,
+          paired_transaction_id: match.id,
+          transfer_account_id: match.account_id,
+        })
+        .eq('id', source.id),
+      supabaseAdmin
+        .from('transactions')
+        .update({
+          is_transfer: true,
+          paired_transaction_id: source.id,
+          transfer_account_id: source.account_id,
+        })
+        .eq('id', match.id),
+    ]);
+  }
+
+  return paired;
+}
