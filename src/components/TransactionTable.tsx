@@ -37,7 +37,7 @@ export default function TransactionTable({
   filterSummary: string
   allTimeHref?: string
   categories: Array<{ id: string; name: string; section?: string | null }>
-  accountId: string
+  accountId?: string
 }) {
   const [processing, setProcessing] = useState<string | null>(null)
   const [openCategoryFor, setOpenCategoryFor] = useState<string | null>(null)
@@ -292,9 +292,9 @@ export default function TransactionTable({
           className="flex items-center text-xs"
           style={{ gap: spacing[2], color: tokenVar('gray-500', colors.gray[500]) }}
         >
-          <span>Account scoped</span>
+          <span>Account scope</span>
           <Badge variant={accountId ? 'success' : 'neutral'}>
-            {accountId ? 'Active' : 'None'}
+            {accountId ? 'Filtered' : 'All accounts'}
           </Badge>
         </div>
       </div>
@@ -314,8 +314,10 @@ export default function TransactionTable({
               <TableHead>Date</TableHead>
               <TableHead>Description</TableHead>
               <TableHead>Account</TableHead>
+              <TableHead className="text-right">Spent</TableHead>
+              <TableHead className="text-right">Received</TableHead>
+              <TableHead>From/To</TableHead>
               <TableHead>Category</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -324,9 +326,13 @@ export default function TransactionTable({
             {transactions.map((transaction) => {
               const isReviewed =
                 Boolean(transaction.reviewed) || transaction.review_status === 'approved'
-              const isPositive = transaction.amount >= 0
+              const amount = transaction.amount ?? 0
+              const isPositive = amount >= 0
               const accountName = transaction.account?.name || 'Unassigned'
-              const transferName = transaction.transfer_to_account?.name
+              const transferName =
+                transaction.transfer_account?.name ||
+                transaction.transfer_to_account?.name ||
+                null
               const suggestedCategoryId =
                 transaction.primary_category_id ||
                 transaction.category_id ||
@@ -342,6 +348,23 @@ export default function TransactionTable({
               const categorySection = resolvedCategory?.section || null
               const needsCategorization = categoryName === NEEDS_CATEGORIZATION_LABEL
               const isCategoryPickerOpen = openCategoryFor === transaction.id
+              const spentAmount = amount < 0 ? Math.abs(amount) : 0
+              const receivedAmount = amount > 0 ? amount : 0
+              const fromTo =
+                transaction.customer?.name ||
+                transaction.vendor?.name ||
+                (transferName
+                  ? `${isPositive ? 'From' : 'To'} ${transferName}`
+                  : transaction.payee_display || transaction.payee || '—')
+              const normalizedStatus =
+                typeof transaction.status === 'string'
+                  ? transaction.status.toLowerCase()
+                  : 'posted'
+              const statusAlias =
+                normalizedStatus === 'settled' || normalizedStatus === 'approved'
+                  ? 'posted'
+                  : normalizedStatus
+              const hasRule = Boolean(transaction.applied_rule_id)
               return (
                 <TableRow
                   key={transaction.id}
@@ -385,6 +408,25 @@ export default function TransactionTable({
                         Transfer: {accountName} to {transferName}
                       </div>
                     )}
+                  </TableCell>
+                  <TableCell
+                    className="whitespace-nowrap text-right font-semibold"
+                    style={{
+                      color: tokenVar('error', colors.error),
+                    }}
+                  >
+                    {spentAmount > 0 ? currencyFormatter.format(spentAmount) : '—'}
+                  </TableCell>
+                  <TableCell
+                    className="whitespace-nowrap text-right font-semibold"
+                    style={{
+                      color: tokenVar('success', colors.success),
+                    }}
+                  >
+                    {receivedAmount > 0 ? currencyFormatter.format(receivedAmount) : '—'}
+                  </TableCell>
+                  <TableCell className="text-sm" style={{ color: tokenVar('gray-700', colors.gray[700]) }}>
+                    {fromTo}
                   </TableCell>
                   <TableCell>
                     {isReviewed ? (
@@ -452,25 +494,13 @@ export default function TransactionTable({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell
-                    className="whitespace-nowrap text-right font-semibold"
-                    style={{
-                      color: isPositive
-                        ? tokenVar('success', colors.success)
-                        : tokenVar('error', colors.error),
-                    }}
-                  >
-                    {isPositive ? '+' : ''}
-                    {currencyFormatter.format(Math.abs(transaction.amount || 0))}
-                  </TableCell>
                   <TableCell className="whitespace-nowrap text-center">
                     <div className="flex flex-col items-center" style={{ gap: spacing[2] }}>
-                      {transaction.is_transfer && <Badge variant="info">Transfer</Badge>}
-                      {isReviewed ? (
-                        <Badge variant="success">Reviewed</Badge>
-                      ) : (
-                        <Badge variant="warning">Pending</Badge>
-                      )}
+                      {transaction.is_transfer && <Badge variant="info">PAIRED</Badge>}
+                      {statusAlias === 'pending' && <Badge variant="warning">Pending</Badge>}
+                      {statusAlias === 'posted' && <Badge variant="success">Posted</Badge>}
+                      {statusAlias === 'reconciled' && <Badge variant="neutral">Reconciled</Badge>}
+                      {hasRule && <Badge variant="neutral">Rule</Badge>}
                     </div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right font-medium">

@@ -25,6 +25,13 @@ const REVIEW_OPTIONS = [
   { value: 'false', label: 'Unreviewed' },
 ]
 
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'posted', label: 'Posted' },
+  { value: 'reconciled', label: 'Reconciled' },
+]
+
 export default function TransactionsFilters({
   reviewed,
   range,
@@ -34,6 +41,7 @@ export default function TransactionsFilters({
   accounts,
   accountId,
   query,
+  status,
 }: {
   reviewed?: string
   range: string
@@ -43,6 +51,7 @@ export default function TransactionsFilters({
   accounts: Array<{ id: string; name: string; institution?: string | null }>
   accountId?: string
   query?: string
+  status?: string
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -77,12 +86,14 @@ export default function TransactionsFilters({
   }, [searchValue, query])
 
   const activeReviewed = reviewed ?? 'all'
+  const activeStatus = status ?? 'all'
 
   const filterSummary = useMemo(() => {
     const rangeLabel = RANGE_OPTIONS.find((option) => option.value === range)?.label ?? 'This month'
     const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReviewed)?.label ?? 'All'
-    return `${rangeLabel} · ${reviewLabel}`
-  }, [range, activeReviewed])
+    const statusLabel = STATUS_OPTIONS.find((option) => option.value === activeStatus)?.label ?? 'All statuses'
+    return `${rangeLabel} · ${reviewLabel} · ${statusLabel}`
+  }, [range, activeReviewed, activeStatus])
 
   const activeChips = useMemo(() => {
     const chips: string[] = []
@@ -98,11 +109,15 @@ export default function TransactionsFilters({
       const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReviewed)?.label
       if (reviewLabel) chips.push(`Status: ${reviewLabel}`)
     }
+    if (activeStatus && activeStatus !== 'all') {
+      const statusLabel = STATUS_OPTIONS.find((option) => option.value === activeStatus)?.label
+      if (statusLabel) chips.push(`Txn status: ${statusLabel}`)
+    }
     if (query) {
       chips.push(`Search: ${query}`)
     }
     return chips
-  }, [accountId, accounts, range, activeReviewed, query])
+  }, [accountId, accounts, range, activeReviewed, activeStatus, query])
 
   const updateParams = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -142,10 +157,15 @@ export default function TransactionsFilters({
     updateParams({ account_id: value })
   }
 
+  const handleStatusChange = (value: string) => {
+    updateParams({ status: value })
+  }
+
   const clearFilters = () => {
     updateParams({
       range: 'last_3_months',
       reviewed: 'false',
+      status: 'all',
       start: null,
       end: null,
       q: null,
@@ -202,7 +222,7 @@ export default function TransactionsFilters({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(260px,1.4fr)] lg:items-center">
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(260px,1.4fr)] lg:items-center">
         <div className="space-y-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="account-filter">
             Account
@@ -213,11 +233,29 @@ export default function TransactionsFilters({
             onChange={(event) => handleAccountChange(event.target.value)}
             aria-label="Select account"
           >
+            <option value="all">All accounts</option>
             {accounts.length === 0 && <option value="">No accounts</option>}
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}
                 {account.institution ? ` · ${account.institution}` : ''}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="status-filter">
+            Status
+          </label>
+          <Select
+            id="status-filter"
+            value={activeStatus}
+            onChange={(event) => handleStatusChange(event.target.value)}
+            aria-label="Select transaction status"
+          >
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </Select>

@@ -3,6 +3,7 @@ import { prepareCsvTransactions, type PreparedTransaction } from '@/lib/csv-impo
 import { planCsvImport } from '@/lib/import-idempotency'
 import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-to-canonical'
 import { validateMapping } from '@/lib/import-mapping'
+import { detectAndPairTransfers } from '@/lib/categorization-engine'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { AmountStrategy, ImportFieldMapping, ParsedTransaction } from '@/types'
 
@@ -348,6 +349,18 @@ export async function runCsvImport({
         error_rows: errorRows,
       })
       .eq('id', importId)
+
+    const uniqueDates = Array.from(
+      new Set(parsedTransactions.map((transaction) => transaction.date).filter(Boolean))
+    )
+
+    for (const date of uniqueDates) {
+      try {
+        await detectAndPairTransfers(accountId, date)
+      } catch (transferError) {
+        console.warn('[ingest] Transfer detection failed', transferError)
+      }
+    }
 
     if (shouldLogDescriptionStats) {
       console.info('[ingest] Description mapping summary', {
