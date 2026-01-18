@@ -31,12 +31,14 @@ export default function TransactionTable({
   filterSummary,
   allTimeHref = '/transactions?range=all',
   categories,
+  accounts,
   accountId,
 }: {
   transactions: any[]
   filterSummary: string
   allTimeHref?: string
   categories: Array<{ id: string; name: string; section?: string | null }>
+  accounts: Array<{ id: string; name: string; institution?: string | null }>
   accountId?: string
 }) {
   const [processing, setProcessing] = useState<string | null>(null)
@@ -44,17 +46,25 @@ export default function TransactionTable({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [bulkCategoryId, setBulkCategoryId] = useState<string>('')
+  const [bulkAccountId, setBulkAccountId] = useState<string>('')
   const [bulkProcessing, setBulkProcessing] = useState(false)
+  const [accountProcessingId, setAccountProcessingId] = useState<string | null>(null)
+  const [accountOverrides, setAccountOverrides] = useState<Record<string, string>>({})
   const router = useRouter()
   const { toast } = useToast()
 
   useEffect(() => {
     setSelectedIds([])
+    setAccountOverrides({})
   }, [transactions])
 
   const allSelected = useMemo(() => {
     return transactions.length > 0 && selectedIds.length === transactions.length
   }, [transactions.length, selectedIds.length])
+
+  const accountsById = useMemo(() => {
+    return new Map(accounts.map((account) => [account.id, account]))
+  }, [accounts])
 
   const toggleSelectAll = () => {
     if (allSelected) {
@@ -116,7 +126,9 @@ export default function TransactionTable({
     }
   }
 
-  const handleBulkAction = async (action: 'mark_reviewed' | 'set_category' | 'approve') => {
+  const handleBulkAction = async (
+    action: 'mark_reviewed' | 'set_category' | 'approve' | 'set_account'
+  ) => {
     if (selectedIds.length === 0) return
 
     if (action === 'set_category' && !bulkCategoryId) {
@@ -124,6 +136,15 @@ export default function TransactionTable({
         variant: 'info',
         title: 'Select a category',
         description: 'Choose a category before applying bulk updates.',
+      })
+      return
+    }
+
+    if (action === 'set_account' && !bulkAccountId) {
+      toast({
+        variant: 'info',
+        title: 'Select an account',
+        description: 'Choose an account before applying bulk updates.',
       })
       return
     }
@@ -138,11 +159,13 @@ export default function TransactionTable({
           ids: selectedIds,
           action,
           categoryId: action === 'set_category' ? bulkCategoryId : undefined,
+          accountId: action === 'set_account' ? bulkAccountId : undefined,
         }),
       })
 
       setSelectedIds([])
       setBulkCategoryId('')
+      setBulkAccountId('')
       toast({
         variant: 'success',
         title: 'Bulk update complete',
@@ -159,6 +182,51 @@ export default function TransactionTable({
       })
     } finally {
       setBulkProcessing(false)
+    }
+  }
+
+  const handleAccountUpdate = async (transactionId: string, nextAccountId: string) => {
+    if (!nextAccountId) {
+      toast({
+        variant: 'error',
+        title: 'Account required',
+        description: 'Select a bank account before saving.',
+      })
+      return
+    }
+
+    const previousAccountId = accountOverrides[transactionId]
+    setAccountOverrides((prev) => ({ ...prev, [transactionId]: nextAccountId }))
+    setAccountProcessingId(transactionId)
+
+    try {
+      await apiRequest(`/api/transactions/${transactionId}/account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: nextAccountId }),
+      })
+      toast({
+        variant: 'success',
+        title: 'Account updated',
+        description: 'Transaction account updated successfully.',
+      })
+      router.refresh()
+    } catch (error) {
+      console.error('Account update failed', error)
+      setAccountOverrides((prev) => {
+        if (previousAccountId === undefined) {
+          const { [transactionId]: _, ...rest } = prev
+          return rest
+        }
+        return { ...prev, [transactionId]: previousAccountId }
+      })
+      toast({
+        variant: 'error',
+        title: 'Account update failed',
+        description: error instanceof Error ? error.message : 'Failed to update account.',
+      })
+    } finally {
+      setAccountProcessingId(null)
     }
   }
 
@@ -255,6 +323,31 @@ export default function TransactionTable({
                   Apply category
                 </Button>
               </div>
+              <div className="flex flex-wrap items-center" style={{ gap: spacing[2] }}>
+                <Select
+                  value={bulkAccountId}
+                  onChange={(event) => setBulkAccountId(event.target.value)}
+                  className="w-48"
+                  style={{ height: spacing[10] }}
+                  aria-label="Select bulk account"
+                >
+                  <option value="">Select account</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                      {account.institution ? ` · ${account.institution}` : ''}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleBulkAction('set_account')}
+                  disabled={bulkProcessing || !bulkAccountId}
+                >
+                  Apply account
+                </Button>
+              </div>
               <Button
                 variant="primary"
                 size="sm"
@@ -328,7 +421,12 @@ export default function TransactionTable({
                 Boolean(transaction.reviewed) || transaction.review_status === 'approved'
               const amount = transaction.amount ?? 0
               const isPositive = amount >= 0
-              const accountName = transaction.accounts?.name || 'Unknown'
+              const accountIdValue =
+                accountOverrides[transaction.id] ?? transaction.account_id ?? ''
+              const accountName =
+                (accountIdValue && accountsById.get(accountIdValue)?.name) ||
+                transaction.accounts?.name ||
+                'Unassigned'
               const transferName =
                 transaction.transfer_account?.name ||
                 transaction.transfer_to_account?.name ||
@@ -399,7 +497,26 @@ export default function TransactionTable({
                     </div>
                   </TableCell>
                   <TableCell style={{ color: tokenVar('gray-900', colors.gray[900]) }}>
-                    <div className="font-medium">{accountName}</div>
+                    <Select
+                      value={accountIdValue}
+                      onChange={(event) =>
+                        handleAccountUpdate(transaction.id, event.target.value)
+                      }
+                      className="w-48"
+                      style={{ height: spacing[10] }}
+                      aria-label={`Select account for ${transaction.payee}`}
+                      disabled={accountProcessingId === transaction.id}
+                    >
+                      <option value="" disabled>
+                        Unassigned
+                      </option>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                          {account.institution ? ` · ${account.institution}` : ''}
+                        </option>
+                      ))}
+                    </Select>
                     {transferName && (
                       <div
                         className="mt-1 text-xs"

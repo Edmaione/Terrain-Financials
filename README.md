@@ -66,6 +66,12 @@ landscape-finance/
 - Deduplication across multiple uploads
 - Transfer detection
 
+### 1.1 Statement account detection (imports)
+- Signals used: header context (first lines), header columns, account number/last4 patterns, and institution name matches.
+- Confidence threshold: **0.75** (below this, the account selector remains unassigned).
+- Learned mappings: `account_import_mappings` keys on institution, statement account name, account number, account last4, and header signature.
+- Audit behavior: account changes on transactions are recorded in `transaction_audit`.
+
 ### 2. AI Categorization
 - Pattern matching rules (GUSTO → Payroll categories)
 - OpenAI suggestions with confidence scores

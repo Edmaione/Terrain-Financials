@@ -26,6 +26,7 @@ export interface Account {
   id: string;
   name: string;
   account_number?: string;
+  last4?: string | null;
   type: AccountType;
   institution?: string;
   is_active: boolean;
@@ -309,6 +310,13 @@ export interface ImportRecord {
   skipped_rows?: number | null;
   error_rows?: number | null;
   last_error?: string | null;
+  detected_institution?: string | null;
+  detected_account_last4?: string | null;
+  detected_account_number?: string | null;
+  detected_statement_account_name?: string | null;
+  detection_method?: string | null;
+  detection_confidence?: number | null;
+  detection_reason?: string | null;
 }
 
 export interface ReviewAction {

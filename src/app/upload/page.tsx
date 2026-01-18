@@ -1,7 +1,6 @@
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import CSVUploader from '@/components/CSVUploader'
-import { resolveAccountSelection } from '@/lib/accounts'
+import { fetchActiveAccounts } from '@/lib/accounts'
 import PageHeader from '@/components/PageHeader'
 import AlertBanner from '@/components/AlertBanner'
 import { Button } from '@/design-system/components/Button'
@@ -14,17 +13,10 @@ export default async function UploadPage({
 }: {
   searchParams: { account_id?: string }
 }) {
-  const { accounts, selectedAccount, needsRedirect } = await resolveAccountSelection(
-    searchParams.account_id
-  )
+  const accounts = await fetchActiveAccounts()
+  const selectedAccountId = searchParams.account_id ?? null
 
-  if (selectedAccount && needsRedirect) {
-    const params = new URLSearchParams()
-    params.set('account_id', selectedAccount.id)
-    redirect(`/upload?${params.toString()}`)
-  }
-
-  if (!selectedAccount) {
+  if (accounts.length === 0) {
     return (
       <AlertBanner
         variant="error"
@@ -50,7 +42,7 @@ export default async function UploadPage({
       <Card className="max-w-4xl" padding={5}>
         <CSVUploader
           accounts={accounts}
-          selectedAccountId={selectedAccount?.id ?? null}
+          selectedAccountId={selectedAccountId}
         />
       </Card>
 
