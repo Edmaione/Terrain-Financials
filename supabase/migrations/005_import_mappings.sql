@@ -35,6 +35,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS import_attempts_account_import_idx
 ALTER TABLE public.import_mappings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.import_attempts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS import_mappings_authenticated_select ON public.import_mappings;
+DROP POLICY IF EXISTS import_mappings_authenticated_write ON public.import_mappings;
+DROP POLICY IF EXISTS import_attempts_authenticated_select ON public.import_attempts;
+DROP POLICY IF EXISTS import_attempts_authenticated_write ON public.import_attempts;
+
 CREATE POLICY import_mappings_authenticated_select
   ON public.import_mappings
   FOR SELECT

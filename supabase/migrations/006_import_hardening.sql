@@ -38,8 +38,10 @@ ALTER TABLE public.import_attempts ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS import_mappings_authenticated_select ON public.import_mappings;
 DROP POLICY IF EXISTS import_mappings_authenticated_write ON public.import_mappings;
+DROP POLICY IF EXISTS import_mappings_account_access ON public.import_mappings;
 DROP POLICY IF EXISTS import_attempts_authenticated_select ON public.import_attempts;
 DROP POLICY IF EXISTS import_attempts_authenticated_write ON public.import_attempts;
+DROP POLICY IF EXISTS import_attempts_account_access ON public.import_attempts;
 
 CREATE POLICY import_mappings_account_access
   ON public.import_mappings

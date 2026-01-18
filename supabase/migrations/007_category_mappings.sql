@@ -18,6 +18,8 @@ CREATE INDEX IF NOT EXISTS category_mappings_account_idx
 
 ALTER TABLE public.category_mappings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS category_mappings_account_access ON public.category_mappings;
+
 CREATE POLICY category_mappings_account_access
   ON public.category_mappings
   FOR ALL
