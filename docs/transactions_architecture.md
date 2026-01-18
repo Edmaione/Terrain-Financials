@@ -53,6 +53,12 @@ Imported transactions retain:
 
 Idempotency is enforced by the unique key `(account_id, source, source_hash)` when `source_hash` is present, plus `(import_id, import_row_hash)`.
 
+### Application usage notes
+
+- Import mapping stores **category labels** only for lookup. The app resolves those labels to canonical `category_id` values via `category_mappings` or a name match before inserting transactions.
+- All UI and APIs read/write canonical lifecycle fields (`bank_status`, `review_status`, `reconciliation_status`) and never rely on legacy `status` or free-text category labels.
+- Bulk operations update canonical fields and write audit entries into `transaction_audit`.
+
 ## Transfers
 
 Transfers are represented using **`transfer_group_id`** across two transaction headers. Each side must:

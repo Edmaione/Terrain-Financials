@@ -1,8 +1,9 @@
 // Type definitions for Landscape Finance
 
 export type AccountType = 'checking' | 'savings' | 'credit_card' | 'loan' | 'investment';
-export type TransactionStatus = 'pending' | 'posted' | 'reconciled';
-export type PostingStatus = 'pending' | 'posted' | 'reconciled';
+export type TransactionStatus = 'SETTLED' | 'PENDING' | 'APPROVED' | 'CANCELLED';
+export type BankStatus = 'pending' | 'posted';
+export type ReconciliationStatus = 'unreconciled' | 'cleared' | 'reconciled';
 export type TxnStatus = 'draft' | 'posted' | 'void';
 export type ReviewStatus = 'needs_review' | 'approved';
 export type SourceSystem =
@@ -87,19 +88,23 @@ export interface Transaction {
   customer_id?: string;
   vendor_id?: string;
   category_id?: string;
-  category_name?: string | null;
   subcategory_id?: string;
   primary_category_id?: string;
   job_id?: string;
   is_transfer: boolean;
-  paired_transaction_id?: string;
-  transfer_account_id?: string;
   transfer_to_account_id?: string;
   transfer_group_id?: string | null;
   payment_method?: string;
   reference?: string;
-  status: TransactionStatus | PostingStatus | null;
+  status?: TransactionStatus | null;
   txn_status?: TxnStatus | null;
+  bank_status?: BankStatus | null;
+  reconciliation_status?: ReconciliationStatus | null;
+  cleared_at?: string | null;
+  reconciled_at?: string | null;
+  voided_at?: string | null;
+  deleted_at?: string | null;
+  posted_at?: string | null;
   source?: SourceSystem | null;
   source_id?: string | null;
   source_hash?: string | null;
@@ -120,7 +125,6 @@ export interface Transaction {
   approved_by?: string | null;
   applied_rule_id?: string | null;
   is_split?: boolean | null;
-  posted_at?: string | null;
   notes?: string;
   raw_csv_data?: any;
   created_at: string;
@@ -129,7 +133,7 @@ export interface Transaction {
   account?: Account;
   customer?: Customer;
   vendor?: Vendor;
-  transfer_account?: Account;
+  transfer_to_account?: Account;
   category?: Category;
   subcategory?: Category;
   job?: Job;
@@ -242,8 +246,8 @@ export interface ImportFieldMapping {
   description: string | null;
   memo: string | null;
   reference: string | null;
-  category_name: string | null;
-  status: string | null;
+  category: string | null;
+  bank_status: string | null;
 }
 
 export interface ParsedTransaction {
@@ -252,10 +256,11 @@ export interface ParsedTransaction {
   description?: string | null;
   memo?: string | null;
   amount: number;
-  category_name?: string | null;
+  category?: string | null;
   reference?: string | null;
-  status?: PostingStatus | null;
-  status_raw?: string | null;
+  bank_status?: BankStatus | null;
+  reconciliation_status?: ReconciliationStatus | null;
+  bank_status_raw?: string | null;
   source_system?: SourceSystem;
   account_number?: string;
   balance?: number;

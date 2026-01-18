@@ -21,7 +21,8 @@ export async function generatePLReport(
     `)
     .gte('date', startDate)
     .lte('date', endDate)
-    .or('review_status.eq.approved,reviewed.eq.true');
+    .eq('review_status', 'approved')
+    .is('deleted_at', null);
 
   if (accountId) {
     transactionsQuery = transactionsQuery.eq('account_id', accountId);
@@ -70,7 +71,7 @@ export async function generatePLReport(
   }
 
   const approvedTransactions = transactions.filter((transaction) =>
-    isReviewApproved(transaction.review_status, transaction.reviewed)
+    isReviewApproved(transaction.review_status)
   );
   const splitTransactionIds = approvedTransactions
     .filter((transaction) => transaction.is_split)
@@ -255,6 +256,7 @@ export async function generateCashFlowData(
     .select('date, amount')
     .gte('date', startDate)
     .lte('date', endDate)
+    .is('deleted_at', null)
     .order('date');
 
   if (accountId) {
@@ -321,7 +323,8 @@ export async function generateWeeklySummary(
       category:categories!category_id(*)
     `)
     .gte('date', weekStart)
-    .lte('date', weekEnd);
+    .lte('date', weekEnd)
+    .is('deleted_at', null);
 
   if (accountId) {
     transactionsQuery = transactionsQuery.eq('account_id', accountId);
@@ -417,7 +420,7 @@ export async function generateWeeklySummary(
     .slice(0, 5);
 
   const unreviewed = transactions.filter(
-    (transaction) => !isReviewApproved(transaction.review_status, transaction.reviewed)
+    (transaction) => !isReviewApproved(transaction.review_status)
   ).length;
 
   return {

@@ -21,19 +21,39 @@ const RANGE_OPTIONS = [
 
 const REVIEW_OPTIONS = [
   { value: 'all', label: 'All' },
-  { value: 'true', label: 'Reviewed' },
-  { value: 'false', label: 'Unreviewed' },
+  { value: 'needs_review', label: 'Needs review' },
+  { value: 'approved', label: 'Approved' },
 ]
 
-const STATUS_OPTIONS = [
-  { value: 'all', label: 'All statuses' },
+const BANK_STATUS_OPTIONS = [
+  { value: 'all', label: 'All bank statuses' },
   { value: 'pending', label: 'Pending' },
   { value: 'posted', label: 'Posted' },
+]
+
+const RECONCILIATION_OPTIONS = [
+  { value: 'all', label: 'All reconciliation statuses' },
+  { value: 'unreconciled', label: 'Unreconciled' },
+  { value: 'cleared', label: 'Cleared' },
   { value: 'reconciled', label: 'Reconciled' },
 ]
 
+const SOURCE_OPTIONS = [
+  { value: 'all', label: 'All sources' },
+  { value: 'manual', label: 'Manual' },
+  { value: 'relay', label: 'Relay' },
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'gusto', label: 'Gusto' },
+  { value: 'amex', label: 'Amex' },
+  { value: 'us_bank', label: 'US Bank' },
+  { value: 'citi', label: 'Citi' },
+  { value: 'dcu', label: 'DCU' },
+  { value: 'sheffield', label: 'Sheffield' },
+  { value: 'other', label: 'Other' },
+]
+
 export default function TransactionsFilters({
-  reviewed,
+  reviewStatus,
   range,
   startDate,
   endDate,
@@ -41,9 +61,17 @@ export default function TransactionsFilters({
   accounts,
   accountId,
   query,
-  status,
+  bankStatus,
+  reconciliationStatus,
+  categoryId,
+  amountMin,
+  amountMax,
+  sourceSystem,
+  importId,
+  includeDeleted,
+  categories,
 }: {
-  reviewed?: string
+  reviewStatus?: string
   range: string
   startDate?: string
   endDate?: string
@@ -51,7 +79,15 @@ export default function TransactionsFilters({
   accounts: Array<{ id: string; name: string; type?: string; institution?: string | null }>
   accountId?: string
   query?: string
-  status?: string
+  bankStatus?: string
+  reconciliationStatus?: string
+  categoryId?: string
+  amountMin?: string
+  amountMax?: string
+  sourceSystem?: string
+  importId?: string
+  includeDeleted?: string
+  categories: Array<{ id: string; name: string; section?: string | null }>
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -59,6 +95,9 @@ export default function TransactionsFilters({
   const [customStart, setCustomStart] = useState(startDate || '')
   const [customEnd, setCustomEnd] = useState(endDate || '')
   const [searchValue, setSearchValue] = useState(query || '')
+  const [minAmount, setMinAmount] = useState(amountMin || '')
+  const [maxAmount, setMaxAmount] = useState(amountMax || '')
+  const [importValue, setImportValue] = useState(importId || '')
   const debugDataFlow = process.env.NEXT_PUBLIC_DEBUG_DATA_FLOW === 'true'
 
   useEffect(() => {
@@ -73,6 +112,18 @@ export default function TransactionsFilters({
   }, [query])
 
   useEffect(() => {
+    setMinAmount(amountMin || '')
+  }, [amountMin])
+
+  useEffect(() => {
+    setMaxAmount(amountMax || '')
+  }, [amountMax])
+
+  useEffect(() => {
+    setImportValue(importId || '')
+  }, [importId])
+
+  useEffect(() => {
     const trimmed = searchValue.trim()
     if (trimmed === (query || '')) {
       return
@@ -85,15 +136,23 @@ export default function TransactionsFilters({
     return () => window.clearTimeout(handler)
   }, [searchValue, query])
 
-  const activeReviewed = reviewed ?? 'all'
-  const activeStatus = status ?? 'all'
+  const activeReview = reviewStatus ?? 'all'
+  const activeBankStatus = bankStatus ?? 'all'
+  const activeReconciliationStatus = reconciliationStatus ?? 'all'
+  const activeSource = sourceSystem ?? 'all'
+  const showDeleted = includeDeleted === 'true'
 
   const filterSummary = useMemo(() => {
     const rangeLabel = RANGE_OPTIONS.find((option) => option.value === range)?.label ?? 'This month'
-    const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReviewed)?.label ?? 'All'
-    const statusLabel = STATUS_OPTIONS.find((option) => option.value === activeStatus)?.label ?? 'All statuses'
-    return `${rangeLabel} · ${reviewLabel} · ${statusLabel}`
-  }, [range, activeReviewed, activeStatus])
+    const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReview)?.label ?? 'All'
+    const bankLabel =
+      BANK_STATUS_OPTIONS.find((option) => option.value === activeBankStatus)?.label ??
+      'All bank statuses'
+    const reconciliationLabel =
+      RECONCILIATION_OPTIONS.find((option) => option.value === activeReconciliationStatus)?.label ??
+      'All reconciliation statuses'
+    return `${rangeLabel} · ${reviewLabel} · ${bankLabel} · ${reconciliationLabel}`
+  }, [range, activeReview, activeBankStatus, activeReconciliationStatus])
 
   const activeChips = useMemo(() => {
     const chips: string[] = []
@@ -105,19 +164,60 @@ export default function TransactionsFilters({
       const rangeLabel = RANGE_OPTIONS.find((option) => option.value === range)?.label
       if (rangeLabel) chips.push(`Range: ${rangeLabel}`)
     }
-    if (activeReviewed && activeReviewed !== 'all') {
-      const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReviewed)?.label
-      if (reviewLabel) chips.push(`Status: ${reviewLabel}`)
+    if (activeReview && activeReview !== 'all') {
+      const reviewLabel = REVIEW_OPTIONS.find((option) => option.value === activeReview)?.label
+      if (reviewLabel) chips.push(`Review: ${reviewLabel}`)
     }
-    if (activeStatus && activeStatus !== 'all') {
-      const statusLabel = STATUS_OPTIONS.find((option) => option.value === activeStatus)?.label
-      if (statusLabel) chips.push(`Txn status: ${statusLabel}`)
+    if (activeBankStatus && activeBankStatus !== 'all') {
+      const statusLabel =
+        BANK_STATUS_OPTIONS.find((option) => option.value === activeBankStatus)?.label
+      if (statusLabel) chips.push(`Bank status: ${statusLabel}`)
+    }
+    if (activeReconciliationStatus && activeReconciliationStatus !== 'all') {
+      const reconciliationLabel =
+        RECONCILIATION_OPTIONS.find((option) => option.value === activeReconciliationStatus)?.label
+      if (reconciliationLabel) chips.push(`Reconciliation: ${reconciliationLabel}`)
+    }
+    if (categoryId) {
+      const categoryLabel = categories.find((category) => category.id === categoryId)?.name
+      if (categoryLabel) chips.push(`Category: ${categoryLabel}`)
+    }
+    if (minAmount) {
+      chips.push(`Min amount: ${minAmount}`)
+    }
+    if (maxAmount) {
+      chips.push(`Max amount: ${maxAmount}`)
+    }
+    if (activeSource && activeSource !== 'all') {
+      const sourceLabel = SOURCE_OPTIONS.find((option) => option.value === activeSource)?.label
+      if (sourceLabel) chips.push(`Source: ${sourceLabel}`)
+    }
+    if (showDeleted) {
+      chips.push('Includes deleted')
+    }
+    if (importValue) {
+      chips.push(`Import: ${importValue}`)
     }
     if (query) {
       chips.push(`Search: ${query}`)
     }
     return chips
-  }, [accountId, accounts, range, activeReviewed, activeStatus, query])
+  }, [
+    accountId,
+    accounts,
+    range,
+    activeReview,
+    activeBankStatus,
+    activeReconciliationStatus,
+    categoryId,
+    categories,
+    minAmount,
+    maxAmount,
+    activeSource,
+    importValue,
+    showDeleted,
+    query,
+  ])
 
   const updateParams = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -150,31 +250,69 @@ export default function TransactionsFilters({
   }
 
   const handleReviewChange = (value: string) => {
-    updateParams({ reviewed: value })
+    updateParams({ review_status: value })
   }
 
   const handleAccountChange = (value: string) => {
     updateParams({ account_id: value })
   }
 
-  const handleStatusChange = (value: string) => {
-    updateParams({ status: value })
+  const handleBankStatusChange = (value: string) => {
+    updateParams({ bank_status: value })
   }
+
+  const handleReconciliationChange = (value: string) => {
+    updateParams({ reconciliation_status: value })
+  }
+
+  const handleCategoryChange = (value: string) => {
+    updateParams({ category_id: value })
+  }
+
+  const handleSourceChange = (value: string) => {
+    updateParams({ source_system: value })
+  }
+
 
   const clearFilters = () => {
     updateParams({
       range: 'last_3_months',
-      reviewed: 'false',
-      status: 'all',
+      review_status: 'needs_review',
+      bank_status: 'all',
+      reconciliation_status: 'all',
+      category_id: null,
+      amount_min: null,
+      amount_max: null,
+      source_system: 'all',
+      import_id: null,
+      include_deleted: null,
       start: null,
       end: null,
       q: null,
     })
     setSearchValue('')
+    setMinAmount('')
+    setMaxAmount('')
+    setImportValue('')
   }
 
   const applyCustomRange = () => {
     updateParams({ range: 'custom', start: customStart, end: customEnd })
+  }
+
+  const applyAmountFilters = () => {
+    updateParams({
+      amount_min: minAmount ? minAmount : null,
+      amount_max: maxAmount ? maxAmount : null,
+    })
+  }
+
+  const applyImportFilter = () => {
+    updateParams({ import_id: importValue ? importValue : null })
+  }
+
+  const handleIncludeDeletedChange = (checked: boolean) => {
+    updateParams({ include_deleted: checked ? 'true' : null })
   }
 
   return (
@@ -198,7 +336,7 @@ export default function TransactionsFilters({
                 onClick={() => handleReviewChange(option.value)}
                 className={cn(
                   'rounded-md px-3 py-1.5 text-xs font-semibold text-slate-600 transition',
-                  activeReviewed === option.value
+                  activeReview === option.value
                     ? 'bg-emerald-600 text-white shadow-sm'
                     : 'hover:bg-slate-50'
                 )}
@@ -218,11 +356,19 @@ export default function TransactionsFilters({
           >
             Clear filters
           </button>
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            <input
+              type="checkbox"
+              checked={showDeleted}
+              onChange={(event) => handleIncludeDeletedChange(event.target.checked)}
+            />
+            Show deleted
+          </label>
           <span className="text-xs text-slate-500">Updated {lastUpdated}</span>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(260px,1.4fr)] lg:items-center">
+      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="space-y-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="account-filter">
             Account
@@ -243,16 +389,16 @@ export default function TransactionsFilters({
           </Select>
         </div>
         <div className="space-y-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="status-filter">
-            Status
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="bank-status-filter">
+            Bank status
           </label>
           <Select
-            id="status-filter"
-            value={activeStatus}
-            onChange={(event) => handleStatusChange(event.target.value)}
-            aria-label="Select transaction status"
+            id="bank-status-filter"
+            value={activeBankStatus}
+            onChange={(event) => handleBankStatusChange(event.target.value)}
+            aria-label="Select bank status"
           >
-            {STATUS_OPTIONS.map((option) => (
+            {BANK_STATUS_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -260,6 +406,109 @@ export default function TransactionsFilters({
           </Select>
         </div>
         <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="reconciliation-filter">
+            Reconciliation status
+          </label>
+          <Select
+            id="reconciliation-filter"
+            value={activeReconciliationStatus}
+            onChange={(event) => handleReconciliationChange(event.target.value)}
+            aria-label="Select reconciliation status"
+          >
+            {RECONCILIATION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="category-filter">
+            Category
+          </label>
+          <Select
+            id="category-filter"
+            value={categoryId || ''}
+            onChange={(event) => handleCategoryChange(event.target.value)}
+            aria-label="Select category"
+          >
+            <option value="">All categories</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.section ? `${category.section} · ${category.name}` : category.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="amount-min">
+            Min amount
+          </label>
+          <Input
+            id="amount-min"
+            type="number"
+            value={minAmount}
+            onChange={(event) => setMinAmount(event.target.value)}
+            onBlur={applyAmountFilters}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') applyAmountFilters()
+            }}
+            placeholder="-1000"
+            aria-label="Minimum amount"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="amount-max">
+            Max amount
+          </label>
+          <Input
+            id="amount-max"
+            type="number"
+            value={maxAmount}
+            onChange={(event) => setMaxAmount(event.target.value)}
+            onBlur={applyAmountFilters}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') applyAmountFilters()
+            }}
+            placeholder="1000"
+            aria-label="Maximum amount"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="source-filter">
+            Source system
+          </label>
+          <Select
+            id="source-filter"
+            value={activeSource}
+            onChange={(event) => handleSourceChange(event.target.value)}
+            aria-label="Select source system"
+          >
+            {SOURCE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="import-filter">
+            Import ID
+          </label>
+          <Input
+            id="import-filter"
+            type="text"
+            value={importValue}
+            onChange={(event) => setImportValue(event.target.value)}
+            onBlur={applyImportFilter}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') applyImportFilter()
+            }}
+            placeholder="Import UUID"
+            aria-label="Filter by import ID"
+          />
+        </div>
+        <div className="space-y-2 md:col-span-2 xl:col-span-4">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="transaction-search">
             Search
           </label>

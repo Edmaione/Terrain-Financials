@@ -22,8 +22,8 @@ describe('transformImportRows', () => {
       description: null,
       memo: 'Memo',
       reference: null,
-      category_name: null,
-      status: null,
+      category: null,
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -60,8 +60,8 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category_name: null,
-      status: null,
+      category: null,
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -93,8 +93,8 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: 'Reference',
-      category_name: null,
-      status: null,
+      category: null,
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -125,8 +125,8 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category_name: null,
-      status: null,
+      category: null,
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -159,8 +159,8 @@ describe('transformImportRows', () => {
       description: 'Description',
       memo: 'Memo',
       reference: 'Reference',
-      category_name: null,
-      status: null,
+      category: null,
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -190,8 +190,8 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category_name: null,
-      status: null,
+      category: null,
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -225,8 +225,8 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category_name: null,
-      status: null,
+      category: null,
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -264,8 +264,8 @@ describe('transformImportRows', () => {
       description: null,
       memo: null,
       reference: null,
-      category_name: 'Category',
-      status: null,
+      category: 'Category',
+      bank_status: null,
     }
 
     const result = await transformImportRows({
@@ -274,7 +274,7 @@ describe('transformImportRows', () => {
       amountStrategy: 'signed' as AmountStrategy,
     })
 
-    expect(result.transactions[0].category_name).toBe('Office Supplies')
-    expect(result.transactions[1].category_name).toBeNull()
+    expect(result.transactions[0].category).toBe('Office Supplies')
+    expect(result.transactions[1].category).toBeNull()
   })
 })

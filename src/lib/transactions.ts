@@ -12,7 +12,6 @@ type TransactionCategoryDisplayInput = {
   category?: TransactionCategoryRelationship | null
   primary_category?: TransactionCategoryRelationship | null
   subcategory?: TransactionCategoryRelationship | null
-  category_name?: string | null
 }
 
 export function getCategoryDisplayLabel(transaction: TransactionCategoryDisplayInput): string {
@@ -25,11 +24,6 @@ export function getCategoryDisplayLabel(transaction: TransactionCategoryDisplayI
 
   if (hasInternalCategory && resolvedName) {
     return resolvedName
-  }
-
-  const categoryHint = transaction.category_name?.trim()
-  if (categoryHint) {
-    return categoryHint
   }
 
   return NEEDS_CATEGORIZATION_LABEL

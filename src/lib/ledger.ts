@@ -120,9 +120,6 @@ export function assertBalancedSplits(splits: Array<{ amount: number }>) {
   }
 }
 
-export function isReviewApproved(reviewStatus?: ReviewStatus | null, reviewed?: boolean | null) {
-  if (reviewStatus) {
-    return reviewStatus === 'approved'
-  }
-  return Boolean(reviewed)
+export function isReviewApproved(reviewStatus?: ReviewStatus | null) {
+  return reviewStatus === 'approved'
 }

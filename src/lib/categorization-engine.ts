@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { supabaseAdmin } from './supabase';
 import { suggestCategory } from './openai';
 import { Transaction, Category, CategorizationRule } from '@/types';
@@ -301,10 +302,11 @@ export function detectTransactionType(
 export async function detectAndPairTransfers(accountId: string, date: string) {
   const { data: sourceTransactions, error: sourceError } = await supabaseAdmin
     .from('transactions')
-    .select('id, amount, account_id, paired_transaction_id, is_transfer')
+    .select('id, amount, account_id, transfer_group_id, is_transfer')
     .eq('account_id', accountId)
     .eq('date', date)
-    .is('paired_transaction_id', null);
+    .is('transfer_group_id', null)
+    .is('deleted_at', null);
 
   if (sourceError || !sourceTransactions || sourceTransactions.length === 0) {
     if (sourceError) {
@@ -315,10 +317,11 @@ export async function detectAndPairTransfers(accountId: string, date: string) {
 
   const { data: candidateTransactions, error: candidateError } = await supabaseAdmin
     .from('transactions')
-    .select('id, amount, account_id, paired_transaction_id, is_transfer')
+    .select('id, amount, account_id, transfer_group_id, is_transfer')
     .neq('account_id', accountId)
     .eq('date', date)
-    .is('paired_transaction_id', null);
+    .is('transfer_group_id', null)
+    .is('deleted_at', null);
 
   if (candidateError || !candidateTransactions || candidateTransactions.length === 0) {
     if (candidateError) {
@@ -344,21 +347,23 @@ export async function detectAndPairTransfers(accountId: string, date: string) {
     usedCandidates.add(match.id);
     paired.push({ source_id: source.id, paired_id: match.id });
 
+    const transferGroupId = randomUUID();
+
     await Promise.all([
       supabaseAdmin
         .from('transactions')
         .update({
           is_transfer: true,
-          paired_transaction_id: match.id,
-          transfer_account_id: match.account_id,
+          transfer_group_id: transferGroupId,
+          transfer_to_account_id: match.account_id,
         })
         .eq('id', source.id),
       supabaseAdmin
         .from('transactions')
         .update({
           is_transfer: true,
-          paired_transaction_id: source.id,
-          transfer_account_id: source.account_id,
+          transfer_group_id: transferGroupId,
+          transfer_to_account_id: source.account_id,
         })
         .eq('id', match.id),
     ]);

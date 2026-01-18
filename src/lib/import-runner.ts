@@ -93,7 +93,8 @@ async function insertTransactions(items: PreparedTransaction[]) {
           date: item.transaction.date,
           payee: item.transaction.payee,
           amount: item.transaction.amount,
-          status: item.transaction.status ?? null,
+          bank_status: item.transaction.bank_status ?? null,
+          reconciliation_status: item.transaction.reconciliation_status ?? null,
           source: item.transaction.source,
           import_row_number: item.transaction.import_row_number,
         }

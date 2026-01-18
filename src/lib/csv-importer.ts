@@ -31,9 +31,11 @@ export type PreparedTransaction = {
     amount: number
     category_id?: string | null
     primary_category_id?: string | null
-    category_name?: string | null
     reference: string | null
-    status: string | null
+    bank_status?: string | null
+    reconciliation_status?: string | null
+    cleared_at?: string | null
+    reconciled_at?: string | null
     txn_status: 'posted' | 'void'
     is_transfer: boolean
     ai_suggested_category: string | null
@@ -44,7 +46,6 @@ export type PreparedTransaction = {
     source_id: string | null
     source_hash: string
     raw_csv_data: Record<string, string>
-    metadata?: Record<string, unknown> | null
     import_id: string
     import_row_number: number
     import_row_hash: string
@@ -239,11 +240,12 @@ export async function prepareCsvTransactions({
   const normalizedCategoryLabels = Array.from(
     new Set(
       transactions
-        .map((transaction) => normalizeExternalCategoryLabel(transaction.category_name))
+        .map((transaction) => normalizeExternalCategoryLabel(transaction.category))
         .filter((value): value is string => Boolean(value))
     )
   )
   const categoryMappingByLabel = new Map<string, string>()
+  const categoryNameByLabel = new Map<string, string>()
 
   if (normalizedCategoryLabels.length > 0) {
     const { data: mappingRows, error: mappingError } = await supabaseAdmin
@@ -258,6 +260,21 @@ export async function prepareCsvTransactions({
       for (const mapping of mappingRows || []) {
         if (mapping.external_label_norm && mapping.category_id) {
           categoryMappingByLabel.set(mapping.external_label_norm, mapping.category_id)
+        }
+      }
+    }
+
+    const { data: categoryRows, error: categoryError } = await supabaseAdmin
+      .from('categories')
+      .select('id, name')
+
+    if (categoryError) {
+      console.warn('[ingest] Category lookup failed:', categoryError)
+    } else {
+      for (const category of categoryRows || []) {
+        const normalized = normalizeExternalCategoryLabel(category.name)
+        if (normalized && category.id && !categoryNameByLabel.has(normalized)) {
+          categoryNameByLabel.set(normalized, category.id)
         }
       }
     }
@@ -280,9 +297,12 @@ export async function prepareCsvTransactions({
         reference || ''
       )
 
-      const normalizedCategoryLabel = normalizeExternalCategoryLabel(transaction.category_name)
+      const normalizedCategoryLabel = normalizeExternalCategoryLabel(transaction.category)
       const mappedCategoryId =
-        (normalizedCategoryLabel && categoryMappingByLabel.get(normalizedCategoryLabel)) || null
+        (normalizedCategoryLabel &&
+          (categoryMappingByLabel.get(normalizedCategoryLabel) ||
+            categoryNameByLabel.get(normalizedCategoryLabel))) ||
+        null
       let suggestedCategoryId: string | null = null
       let confidence = 0
 
@@ -375,15 +395,28 @@ export async function prepareCsvTransactions({
           source,
         })
 
-      const statusRaw = normalizeOptionalText(transaction.status_raw ?? null)
-      const normalizedStatusValue = normalizeOptionalText(transaction.status ?? null)
-      const allowedStatuses = new Set(['pending', 'posted', 'reconciled'])
+      const statusRaw = normalizeOptionalText(transaction.bank_status_raw ?? null)
+      const normalizedStatusValue = normalizeOptionalText(transaction.bank_status ?? null)
+      const allowedStatuses = new Set(['pending', 'posted'])
       const normalizedStatus =
         normalizedStatusValue && allowedStatuses.has(normalizedStatusValue)
           ? normalizedStatusValue
           : null
+      const normalizedReconciliation =
+        transaction.reconciliation_status === 'cleared' ||
+        transaction.reconciliation_status === 'reconciled'
+          ? transaction.reconciliation_status
+          : 'unreconciled'
       const txnStatus =
         statusRaw && statusRaw.toLowerCase().includes('void') ? 'void' : 'posted'
+      const reconciledAt =
+        normalizedReconciliation === 'reconciled'
+          ? new Date(`${transaction.date}T00:00:00Z`).toISOString()
+          : null
+      const clearedAt =
+        normalizedReconciliation === 'cleared'
+          ? new Date(`${transaction.date}T00:00:00Z`).toISOString()
+          : null
 
       preparedTransactions.push({
         transaction: {
@@ -398,9 +431,11 @@ export async function prepareCsvTransactions({
           amount: transaction.amount,
           category_id: mappedCategoryId,
           primary_category_id: mappedCategoryId,
-          category_name: normalizeOptionalText(transaction.category_name),
           reference: reference || null,
-          status: normalizedStatus,
+          bank_status: normalizedStatus,
+          reconciliation_status: normalizedReconciliation,
+          cleared_at: clearedAt,
+          reconciled_at: reconciledAt,
           txn_status: txnStatus,
           is_transfer: isTransfer,
           ai_suggested_category: suggestedCategoryId,
@@ -411,10 +446,6 @@ export async function prepareCsvTransactions({
           source_id: sourceId,
           source_hash: sourceHash,
           raw_csv_data: transaction.raw_data,
-          metadata: {
-            status_raw: statusRaw ?? null,
-            status_mapped: normalizedStatus,
-          },
           import_id: importId,
           import_row_number: rowNumber,
           import_row_hash: rowHash,

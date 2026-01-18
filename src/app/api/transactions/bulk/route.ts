@@ -2,7 +2,17 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { recordReviewAction } from '@/lib/review-actions';
 
-const ACTIONS = ['mark_reviewed', 'set_category', 'approve', 'set_account'] as const;
+const ACTIONS = [
+  'mark_reviewed',
+  'set_category',
+  'approve',
+  'set_account',
+  'mark_cleared',
+  'mark_reconciled',
+  'mark_unreconciled',
+  'soft_delete',
+  'restore',
+] as const;
 
 type BulkAction = (typeof ACTIONS)[number];
 
@@ -52,7 +62,6 @@ export async function POST(request: Request) {
     }
 
     if (action === 'approve') {
-      updatePayload.status = 'posted';
       updatePayload.reviewed = true;
       updatePayload.reviewed_at = now;
       updatePayload.review_status = 'approved';
@@ -64,9 +73,37 @@ export async function POST(request: Request) {
       updatePayload.account_id = accountId;
     }
 
+    if (action === 'mark_cleared') {
+      updatePayload.reconciliation_status = 'cleared';
+      updatePayload.cleared_at = now;
+      updatePayload.reconciled_at = null;
+    }
+
+    if (action === 'mark_reconciled') {
+      updatePayload.reconciliation_status = 'reconciled';
+      updatePayload.reconciled_at = now;
+      updatePayload.cleared_at = now;
+    }
+
+    if (action === 'mark_unreconciled') {
+      updatePayload.reconciliation_status = 'unreconciled';
+      updatePayload.cleared_at = null;
+      updatePayload.reconciled_at = null;
+    }
+
+    if (action === 'soft_delete') {
+      updatePayload.deleted_at = now;
+    }
+
+    if (action === 'restore') {
+      updatePayload.deleted_at = null;
+    }
+
     const { data: existingTransactions } = await supabaseAdmin
       .from('transactions')
-      .select('id, account_id, category_id, primary_category_id, review_status')
+      .select(
+        'id, account_id, category_id, primary_category_id, review_status, reconciliation_status, deleted_at'
+      )
       .in('id', ids);
 
     const { data, error } = await supabaseAdmin
@@ -138,6 +175,58 @@ export async function POST(request: Request) {
 
         if (auditError) {
           console.error('[API] Bulk account audit error:', auditError);
+        }
+      }
+    }
+
+    if (
+      action === 'mark_cleared' ||
+      action === 'mark_reconciled' ||
+      action === 'mark_unreconciled'
+    ) {
+      const reconciliationValue =
+        action === 'mark_cleared'
+          ? 'cleared'
+          : action === 'mark_reconciled'
+            ? 'reconciled'
+            : 'unreconciled';
+      const auditRows =
+        existingTransactions?.map((row) => ({
+          transaction_id: row.id,
+          field: 'reconciliation_status',
+          old_value: row.reconciliation_status ?? null,
+          new_value: reconciliationValue,
+          changed_by: approvedBy ?? 'bulk',
+        })) ?? [];
+
+      if (auditRows.length > 0) {
+        const { error: auditError } = await supabaseAdmin
+          .from('transaction_audit')
+          .insert(auditRows);
+
+        if (auditError) {
+          console.error('[API] Bulk reconciliation audit error:', auditError);
+        }
+      }
+    }
+
+    if (action === 'soft_delete' || action === 'restore') {
+      const auditRows =
+        existingTransactions?.map((row) => ({
+          transaction_id: row.id,
+          field: 'deleted_at',
+          old_value: row.deleted_at ?? null,
+          new_value: action === 'soft_delete' ? now : null,
+          changed_by: approvedBy ?? 'bulk',
+        })) ?? [];
+
+      if (auditRows.length > 0) {
+        const { error: auditError } = await supabaseAdmin
+          .from('transaction_audit')
+          .insert(auditRows);
+
+        if (auditError) {
+          console.error('[API] Bulk delete audit error:', auditError);
         }
       }
     }

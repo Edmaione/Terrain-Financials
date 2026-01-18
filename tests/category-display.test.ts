@@ -23,15 +23,6 @@ describe('getCategoryDisplayLabel', () => {
     ).toBe('Travel')
   })
 
-  it('falls back to imported category name when internal category is missing', () => {
-    expect(
-      getCategoryDisplayLabel({
-        category_id: null,
-        category_name: 'Fuel',
-      })
-    ).toBe('Fuel')
-  })
-
   it('defaults to needs categorization when both are missing', () => {
     expect(getCategoryDisplayLabel({})).toBe(NEEDS_CATEGORIZATION_LABEL)
   })

@@ -25,7 +25,8 @@ async function getDashboardData() {
     const { count: unreviewedCount, error: unreviewedError } = await supabaseAdmin
       .from('transactions')
       .select('*', { count: 'exact', head: true })
-      .or('review_status.eq.needs_review,reviewed.eq.false')
+      .eq('review_status', 'needs_review')
+      .is('deleted_at', null)
 
     if (unreviewedError) {
       console.error('[dashboard] Failed to fetch unreviewed count', unreviewedError)
@@ -34,6 +35,7 @@ async function getDashboardData() {
     const { count: transactionCount, error: transactionCountError } = await supabaseAdmin
       .from('transactions')
       .select('*', { count: 'exact', head: true })
+      .is('deleted_at', null)
 
     if (transactionCountError) {
       console.error('[dashboard] Failed to fetch transaction count', transactionCountError)
@@ -44,6 +46,7 @@ async function getDashboardData() {
       .from('transactions')
       .select('amount, category:categories!category_id(type)')
       .gte('date', monthStart.toISOString().split('T')[0])
+      .is('deleted_at', null)
 
     if (monthError) {
       console.error('[dashboard] Failed to fetch monthly transactions', monthError)
@@ -191,7 +194,7 @@ export default async function Dashboard() {
               </h3>
               <div className="mt-2">
                 <Link
-                  href="/transactions?reviewed=false"
+                  href="/transactions?review_status=needs_review"
                   className="text-sm font-medium text-amber-700 hover:text-amber-600"
                 >
                   Review now

@@ -53,8 +53,8 @@ export default function CSVUploader({
     description: null,
     memo: null,
     reference: null,
-    category_name: null,
-    status: null,
+    category: null,
+    bank_status: null,
   })
   const [amountStrategy, setAmountStrategy] = useState<AmountStrategy>('signed')
   const [mappingId, setMappingId] = useState<string | null>(null)
@@ -449,7 +449,7 @@ export default function CSVUploader({
   }, [parsedRows, mapping, amountStrategy, accountId, statusMap, detectedInstitution])
 
   useEffect(() => {
-    if (!mapping.status) {
+    if (!mapping.bank_status) {
       setStatusValues([])
       setStatusMap({})
       return
@@ -457,7 +457,7 @@ export default function CSVUploader({
 
     const valueMap = new Map<string, string>()
     for (const row of parsedRows) {
-      const raw = row[mapping.status]
+      const raw = row[mapping.bank_status]
       if (!raw) continue
       const trimmed = raw.trim()
       if (!trimmed) continue
@@ -481,7 +481,7 @@ export default function CSVUploader({
       }
       return next
     })
-  }, [parsedRows, mapping.status])
+  }, [parsedRows, mapping.bank_status])
 
   const previewErrorSummary = useMemo(() => {
     if (parsedRows.length === 0 || previewResult.errors.length === 0) {
@@ -508,9 +508,9 @@ export default function CSVUploader({
   }, [parsedRows.length, previewResult.errors])
 
   const statusMappingMissing = useMemo(() => {
-    if (!mapping.status || statusValues.length === 0) return []
+    if (!mapping.bank_status || statusValues.length === 0) return []
     return statusValues.filter((status) => !statusMap[status.key])
-  }, [mapping.status, statusMap, statusValues])
+  }, [mapping.bank_status, statusMap, statusValues])
 
   const detectedDateFormat = useMemo(() => {
     const detected = detectDateFormatFromRows(parsedRows, mapping.date)
@@ -703,9 +703,13 @@ export default function CSVUploader({
   }
 
   const reviewHref = accountId
-    ? `/transactions?reviewed=false&range=all&account_id=${accountId}`
-    : '/transactions?reviewed=false&range=all'
+    ? `/transactions?review_status=needs_review&range=all&account_id=${accountId}`
+    : '/transactions?review_status=needs_review&range=all'
   const importIsActive = ['queued', 'running'].includes(currentImport?.status ?? '')
+  const processedRows = currentImport?.processed_rows ?? 0
+  const totalRows = currentImport?.total_rows ?? 0
+  const progressPercent =
+    totalRows > 0 ? Math.min(100, Math.round((processedRows / totalRows) * 100)) : null
   const suggestionAccount = accountSuggestion?.suggestedAccountId
     ? accounts.find((account) => account.id === accountSuggestion.suggestedAccountId) ?? null
     : null
@@ -849,13 +853,25 @@ export default function CSVUploader({
           <div className="mt-4">
             <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
               <div
-                className={`h-2 rounded-full bg-emerald-500 ${importIsActive ? 'w-1/2 animate-pulse' : 'w-full'}`}
+                className={`h-2 rounded-full bg-emerald-500 ${
+                  importIsActive && progressPercent === null ? 'animate-pulse' : ''
+                }`}
+                style={{
+                  width:
+                    progressPercent !== null
+                      ? `${progressPercent}%`
+                      : importIsActive
+                        ? '50%'
+                        : '100%',
+                }}
               />
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              {importIsActive
-                ? 'Importing transactions. This may take a moment.'
-                : 'Import complete.'}
+              {importIsActive && progressPercent !== null
+                ? `Processing ${processedRows} of ${totalRows} rows (${progressPercent}%)`
+                : importIsActive
+                  ? 'Importing transactions. This may take a moment.'
+                  : 'Import complete.'}
             </p>
           </div>
 
@@ -1000,8 +1016,8 @@ export default function CSVUploader({
                   Category
                 </label>
                 <Select
-                  value={mapping.category_name ?? ''}
-                  onChange={(event) => updateMappingField('category_name', event.target.value)}
+                  value={mapping.category ?? ''}
+                  onChange={(event) => updateMappingField('category', event.target.value)}
                   className="mt-2 w-full text-xs"
                 >
                   <option value="">Select column</option>
@@ -1051,8 +1067,8 @@ export default function CSVUploader({
                   Status
                 </label>
                 <Select
-                  value={mapping.status ?? ''}
-                  onChange={(event) => updateMappingField('status', event.target.value)}
+                  value={mapping.bank_status ?? ''}
+                  onChange={(event) => updateMappingField('bank_status', event.target.value)}
                   className="mt-2 w-full text-xs"
                 >
                   <option value="">Select column</option>
@@ -1066,12 +1082,12 @@ export default function CSVUploader({
             </div>
           )}
 
-          {mapping.status && (
+          {mapping.bank_status && (
             <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-slate-900">Status mapping</p>
                 <p className="text-xs text-slate-500">
-                  Map each CSV status to pending, posted, reconciled, or ignore.
+                  Map each CSV status to pending, posted, cleared, reconciled, or ignore.
                 </p>
               </div>
               {statusValues.length === 0 && (
@@ -1302,7 +1318,7 @@ export default function CSVUploader({
                           {transaction.description ?? 'No description'}
                         </td>
                         <td className="px-4 py-3 text-sm text-slate-500">
-                          {transaction.category_name ?? ''}
+                          {transaction.category ?? ''}
                         </td>
                         <td
                           className={`px-4 py-3 text-sm font-semibold text-right whitespace-nowrap ${
