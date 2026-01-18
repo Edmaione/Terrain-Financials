@@ -307,6 +307,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS transaction_splits_total_chk ON transaction_splits;
+ALTER TABLE transaction_splits
+  DROP CONSTRAINT IF EXISTS transaction_splits_total_chk;
 CREATE CONSTRAINT TRIGGER transaction_splits_total_chk
 AFTER INSERT OR UPDATE OR DELETE ON transaction_splits
 DEFERRABLE INITIALLY DEFERRED
@@ -314,6 +316,8 @@ FOR EACH ROW
 EXECUTE FUNCTION transactions_validate_split_total();
 
 DROP TRIGGER IF EXISTS transactions_total_chk ON transactions;
+ALTER TABLE transactions
+  DROP CONSTRAINT IF EXISTS transactions_total_chk;
 CREATE CONSTRAINT TRIGGER transactions_total_chk
 AFTER UPDATE OF amount ON transactions
 DEFERRABLE INITIALLY DEFERRED
@@ -360,6 +364,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS transactions_transfer_group_chk ON transactions;
+ALTER TABLE transactions
+  DROP CONSTRAINT IF EXISTS transactions_transfer_group_chk;
 CREATE CONSTRAINT TRIGGER transactions_transfer_group_chk
 AFTER INSERT OR UPDATE OR DELETE ON transactions
 DEFERRABLE INITIALLY DEFERRED
