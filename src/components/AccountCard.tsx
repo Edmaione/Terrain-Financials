@@ -38,6 +38,7 @@ export function AccountCard({
       `}
     >
       <div className="text-sm font-medium text-gray-900">{account.name}</div>
+      <div className="text-xs text-gray-500">{account.institution || 'Unknown institution'}</div>
       <div className={`mt-1 text-2xl font-bold ${balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
         {currencyFormatter.format(Math.abs(balance))}
       </div>

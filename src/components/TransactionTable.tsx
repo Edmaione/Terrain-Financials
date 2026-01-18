@@ -328,7 +328,7 @@ export default function TransactionTable({
                 Boolean(transaction.reviewed) || transaction.review_status === 'approved'
               const amount = transaction.amount ?? 0
               const isPositive = amount >= 0
-              const accountName = transaction.account?.name || 'Unassigned'
+              const accountName = transaction.accounts?.name || 'Unassigned'
               const transferName =
                 transaction.transfer_account?.name ||
                 transaction.transfer_to_account?.name ||
