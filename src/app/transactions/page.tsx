@@ -315,6 +315,7 @@ export default async function TransactionsPage({
 }) {
   const isAllAccounts = searchParams.account_id === 'all'
   const bankAccounts = await getBankAccounts()
+  const accounts = bankAccounts
   const selectedAccount = isAllAccounts
     ? null
     : bankAccounts.find((account) => account.id === searchParams.account_id) ?? null
@@ -475,7 +476,7 @@ export default async function TransactionsPage({
         startDate={dateRange.start}
         endDate={dateRange.end}
         lastUpdated={lastUpdated}
-        accounts={bankAccounts}
+        accounts={accounts}
         accountId={isAllAccounts ? 'all' : fallbackAccount?.id}
         query={searchParams.q}
         status={activeStatus}
