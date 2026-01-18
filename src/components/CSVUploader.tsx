@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { IconFileUp, IconUploadCloud } from '@/components/ui/icons'
 import { parseCSV } from '@/lib/csv-parser'
+import { AccountDetectionResult } from '@/lib/account-detection'
 import { computeHeaderFingerprint } from '@/lib/import-header-fingerprint'
 import {
   buildMappingPayload,
@@ -56,6 +57,9 @@ export default function CSVUploader({
   const [dragActive, setDragActive] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [accountId, setAccountId] = useState(selectedAccountId ?? '')
+  const [accountTouched, setAccountTouched] = useState(false)
+  const [accountSuggestion, setAccountSuggestion] = useState<AccountDetectionResult | null>(null)
+  const [detectionLoading, setDetectionLoading] = useState(false)
   const [currentImport, setCurrentImport] = useState<ImportRecord | null>(null)
   const [previewResult, setPreviewResult] = useState<{
     transactions: CanonicalImportRow[]
@@ -64,6 +68,7 @@ export default function CSVUploader({
   const [previewLoading, setPreviewLoading] = useState(false)
   const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
+  const confidenceThreshold = 0.75
 
   useEffect(() => {
     setAccountId(selectedAccountId ?? '')
@@ -75,9 +80,14 @@ export default function CSVUploader({
   )
 
   const handleAccountChange = (value: string) => {
+    setAccountTouched(true)
     setAccountId(value)
     const params = new URLSearchParams(searchParams.toString())
-    params.set('account_id', value)
+    if (value) {
+      params.set('account_id', value)
+    } else {
+      params.delete('account_id')
+    }
     router.push(`/upload?${params.toString()}`)
   }
 
@@ -125,6 +135,9 @@ export default function CSVUploader({
     setParsedHeaders([])
     setHeaderFingerprint(null)
     setCurrentImport(null)
+    setAccountSuggestion(null)
+    setAccountTouched(false)
+    const shouldAutoSelect = true
     if (searchParams.get('import_id')) {
       const params = new URLSearchParams(searchParams.toString())
       params.delete('import_id')
@@ -134,6 +147,7 @@ export default function CSVUploader({
     try {
       const allRows: CSVRow[] = []
       let headers: string[] = []
+      const firstFile = filesToParse[0]
 
       for (const file of filesToParse) {
         const parsed = await parseCSV(file)
@@ -162,6 +176,43 @@ export default function CSVUploader({
       setSaveTemplate(false)
       setMappingDirty(false)
       setShowMoreFields(false)
+
+      if (firstFile && fingerprint) {
+        setDetectionLoading(true)
+        try {
+          const fileText = await firstFile.text()
+          const detectionResponse = await apiRequest<{
+            detection: AccountDetectionResult
+          }>('/api/imports/detect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileText, headerFingerprint: fingerprint }),
+          })
+
+          const detection = detectionResponse.detection
+          setAccountSuggestion(detection)
+
+          if (shouldAutoSelect) {
+            if (detection.suggestedAccountId && detection.confidence >= confidenceThreshold) {
+              setAccountId(detection.suggestedAccountId)
+              const params = new URLSearchParams(searchParams.toString())
+              params.set('account_id', detection.suggestedAccountId)
+              router.push(`/upload?${params.toString()}`)
+            } else {
+              setAccountId('')
+              const params = new URLSearchParams(searchParams.toString())
+              params.delete('account_id')
+              router.push(`/upload?${params.toString()}`)
+            }
+          }
+        } catch (err) {
+          if (debugIngest) {
+            console.warn('[ingest] Account detection failed', err)
+          }
+        } finally {
+          setDetectionLoading(false)
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to parse CSV'
       setError(message)
@@ -420,6 +471,13 @@ export default function CSVUploader({
       if (mappingTemplateId) {
         formData.append('mappingId', mappingTemplateId)
       }
+      if (accountSuggestion) {
+        formData.append('detection', JSON.stringify(accountSuggestion))
+        formData.append(
+          'detectionAccepted',
+          String(accountSuggestion.suggestedAccountId === accountId)
+        )
+      }
 
       const result = await apiRequest<{ import: ImportRecord; existing: boolean }>(
         '/api/upload/csv',
@@ -469,6 +527,12 @@ export default function CSVUploader({
     ? `/transactions?reviewed=false&range=all&account_id=${accountId}`
     : '/transactions?reviewed=false&range=all'
   const importIsActive = ['queued', 'running'].includes(currentImport?.status ?? '')
+  const suggestionAccount = accountSuggestion?.suggestedAccountId
+    ? accounts.find((account) => account.id === accountSuggestion.suggestedAccountId) ?? null
+    : null
+  const suggestionConfidenceLabel = accountSuggestion
+    ? `${Math.round(accountSuggestion.confidence * 100)}%`
+    : null
 
   return (
     <div className="space-y-6">
@@ -521,6 +585,7 @@ export default function CSVUploader({
           className="mt-2 w-full sm:max-w-sm"
           aria-label="Select account for upload"
         >
+          <option value="">Select account</option>
           {accounts.length === 0 && <option value="">No accounts available</option>}
           {accounts.map((account) => (
             <option key={account.id} value={account.id}>
@@ -529,6 +594,23 @@ export default function CSVUploader({
             </option>
           ))}
         </Select>
+        <div className="mt-2 text-xs text-slate-500">
+          {detectionLoading && <span>Analyzing statement for account match…</span>}
+          {!detectionLoading && accountSuggestion && suggestionAccount && (
+            <span>
+              Suggested: <span className="font-semibold text-slate-700">{suggestionAccount.name}</span>{' '}
+              ({suggestionConfidenceLabel} confidence). {accountSuggestion.reason}
+            </span>
+          )}
+          {!detectionLoading && accountSuggestion && !suggestionAccount && (
+            <span>
+              No confident account match found. {accountSuggestion.reason}
+            </span>
+          )}
+          {!detectionLoading && !accountSuggestion && (
+            <span>Select the bank account that matches this statement.</span>
+          )}
+        </div>
       </div>
 
       {files.length > 0 && (

@@ -148,7 +148,39 @@ CREATE TABLE imports (
     inserted_rows INTEGER DEFAULT 0,
     skipped_rows INTEGER DEFAULT 0,
     error_rows INTEGER DEFAULT 0,
-    last_error TEXT
+    last_error TEXT,
+    detected_institution TEXT,
+    detected_account_last4 TEXT,
+    detected_account_number TEXT,
+    detected_statement_account_name TEXT,
+    detection_method TEXT,
+    detection_confidence NUMERIC,
+    detection_reason TEXT
+);
+
+-- ============================================================================
+-- ACCOUNT IMPORT MAPPINGS TABLE
+-- ============================================================================
+CREATE TABLE account_import_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution TEXT,
+    statement_account_name TEXT,
+    account_number TEXT,
+    account_last4 TEXT,
+    header_signature TEXT,
+    account_id UUID NOT NULL REFERENCES accounts(id),
+    confidence NUMERIC,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX account_import_mappings_unique
+ON account_import_mappings (
+    coalesce(institution,''),
+    coalesce(statement_account_name,''),
+    coalesce(account_number,''),
+    coalesce(account_last4,''),
+    coalesce(header_signature,'')
 );
 
 -- ============================================================================
@@ -220,6 +252,19 @@ CREATE TABLE review_actions (
     after_json JSONB,
     actor TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================================
+-- TRANSACTION AUDIT TABLE
+-- ============================================================================
+CREATE TABLE transaction_audit (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    field TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    changed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    changed_by TEXT
 );
 
 -- ============================================================================

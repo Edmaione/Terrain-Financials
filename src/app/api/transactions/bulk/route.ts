@@ -2,14 +2,14 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { recordReviewAction } from '@/lib/review-actions';
 
-const ACTIONS = ['mark_reviewed', 'set_category', 'approve'] as const;
+const ACTIONS = ['mark_reviewed', 'set_category', 'approve', 'set_account'] as const;
 
 type BulkAction = (typeof ACTIONS)[number];
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { ids, action, categoryId, approvedBy } = body ?? {};
+    const { ids, action, categoryId, accountId, approvedBy } = body ?? {};
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ ok: false, error: 'Transaction IDs are required.' }, { status: 400 });
@@ -22,6 +22,13 @@ export async function POST(request: Request) {
     if (action === 'set_category' && !categoryId) {
       return NextResponse.json(
         { ok: false, error: 'Category is required for bulk categorization.' },
+        { status: 400 }
+      );
+    }
+
+    if (action === 'set_account' && !accountId) {
+      return NextResponse.json(
+        { ok: false, error: 'Account is required for bulk account updates.' },
         { status: 400 }
       );
     }
@@ -53,9 +60,13 @@ export async function POST(request: Request) {
       updatePayload.approved_by = approvedBy ?? 'bulk';
     }
 
+    if (action === 'set_account') {
+      updatePayload.account_id = accountId;
+    }
+
     const { data: existingTransactions } = await supabaseAdmin
       .from('transactions')
-      .select('id, category_id, primary_category_id, review_status')
+      .select('id, account_id, category_id, primary_category_id, review_status')
       .in('id', ids);
 
     const { data, error } = await supabaseAdmin
@@ -106,6 +117,29 @@ export async function POST(request: Request) {
           });
         })
       );
+    }
+
+    if (action === 'set_account') {
+      const auditRows =
+        existingTransactions
+          ?.filter((row) => row.account_id !== accountId)
+          .map((row) => ({
+            transaction_id: row.id,
+            field: 'account_id',
+            old_value: row.account_id ?? null,
+            new_value: accountId,
+            changed_by: approvedBy ?? 'bulk',
+          })) ?? [];
+
+      if (auditRows.length > 0) {
+        const { error: auditError } = await supabaseAdmin
+          .from('transaction_audit')
+          .insert(auditRows);
+
+        if (auditError) {
+          console.error('[API] Bulk account audit error:', auditError);
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, data: { ids: data?.map((row) => row.id) || [] } });
