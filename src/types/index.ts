@@ -1,7 +1,7 @@
 // Type definitions for Landscape Finance
 
 export type AccountType = 'checking' | 'savings' | 'credit_card' | 'loan' | 'investment';
-export type TransactionStatus = 'SETTLED' | 'PENDING' | 'APPROVED' | 'CANCELLED';
+export type TransactionStatus = 'pending' | 'posted' | 'reconciled';
 export type BankStatus = 'pending' | 'posted';
 export type ReconciliationStatus = 'unreconciled' | 'cleared' | 'reconciled';
 export type TxnStatus = 'draft' | 'posted' | 'void';

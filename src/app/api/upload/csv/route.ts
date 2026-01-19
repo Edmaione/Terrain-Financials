@@ -275,17 +275,44 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const preflightIssues: Array<{
+      rowNumber?: number
+      severity?: string
+      message?: string
+      rawRow?: Record<string, string>
+    }> = []
+
     if (preflight && Array.isArray(preflight.errors) && preflight.errors.length > 0) {
-      const issues = preflight.errors.map((issue: any) => ({
+      preflightIssues.push(
+        ...preflight.errors.map((issue: any) => ({
+          rowNumber: issue.rowNumber ?? null,
+          severity: 'error',
+          message: issue.message ?? 'Preflight error',
+          rawRow: issue.rawRow ?? null,
+        }))
+      )
+    }
+
+    if (preflight && Array.isArray(preflight.issues) && preflight.issues.length > 0) {
+      preflightIssues.push(
+        ...preflight.issues.map((issue: any) => ({
+          rowNumber: issue.rowNumber ?? null,
+          severity: issue.severity ?? 'warning',
+          message: issue.message ?? 'Preflight warning',
+          rawRow: issue.rawRow ?? null,
+        }))
+      )
+    }
+
+    if (preflightIssues.length > 0) {
+      const issues = preflightIssues.map((issue) => ({
         import_id: createdImport.id,
         row_number: issue.rowNumber ?? null,
-        severity: 'error',
-        message: issue.message ?? 'Preflight error',
+        severity: issue.severity ?? 'warning',
+        message: issue.message ?? 'Preflight issue',
         raw_row: issue.rawRow ?? null,
       }))
-      if (issues.length > 0) {
-        await supabaseAdmin.from('import_row_issues').insert(issues)
-      }
+      await supabaseAdmin.from('import_row_issues').insert(issues)
     }
 
     const { error: attemptError } = await supabaseAdmin.from('import_attempts').insert({

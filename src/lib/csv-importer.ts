@@ -3,6 +3,7 @@ import { normalizeExternalCategoryLabel } from '@/lib/category-mappings'
 import { isLikelyTransfer } from '@/lib/csv-parser'
 import { assertBalancedSplits, computeSourceHash, normalizePayeeName } from '@/lib/ledger'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { isUuid } from '@/lib/uuid'
 import { ParsedTransaction } from '@/types'
 
 export type AccountLookup = {
@@ -240,7 +241,13 @@ export async function prepareCsvTransactions({
   const normalizedCategoryLabels = Array.from(
     new Set(
       transactions
-        .map((transaction) => normalizeExternalCategoryLabel(transaction.category))
+        .map((transaction) => {
+          const categoryValue = normalizeOptionalText(transaction.category)
+          if (categoryValue && isUuid(categoryValue)) {
+            return null
+          }
+          return normalizeExternalCategoryLabel(categoryValue)
+        })
         .filter((value): value is string => Boolean(value))
     )
   )
@@ -297,11 +304,17 @@ export async function prepareCsvTransactions({
         reference || ''
       )
 
-      const normalizedCategoryLabel = normalizeExternalCategoryLabel(transaction.category)
+      const categoryValue = normalizeOptionalText(transaction.category)
+      const normalizedCategoryLabel =
+        categoryValue && !isUuid(categoryValue)
+          ? normalizeExternalCategoryLabel(categoryValue)
+          : null
       const mappedCategoryId =
-        (normalizedCategoryLabel &&
-          (categoryMappingByLabel.get(normalizedCategoryLabel) ||
-            categoryNameByLabel.get(normalizedCategoryLabel))) ||
+        (categoryValue && isUuid(categoryValue)
+          ? categoryValue
+          : normalizedCategoryLabel &&
+            (categoryMappingByLabel.get(normalizedCategoryLabel) ||
+              categoryNameByLabel.get(normalizedCategoryLabel))) ||
         null
       let suggestedCategoryId: string | null = null
       let confidence = 0

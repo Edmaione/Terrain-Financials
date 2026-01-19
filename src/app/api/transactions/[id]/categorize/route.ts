@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { recordReviewAction } from '@/lib/review-actions';
+import { validateTransactionStatusPayload } from '@/lib/transaction-status';
 
 export async function POST(
   request: NextRequest,
@@ -8,6 +9,7 @@ export async function POST(
 ) {
   try {
     const body = await request.json();
+    validateTransactionStatusPayload(body ?? {});
     const { category_id, subcategory_id } = body;
     const transactionId = params.id;
 

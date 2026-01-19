@@ -15,7 +15,11 @@ import {
   normalizeImportMapping,
   validateMapping,
 } from '@/lib/import-mapping'
-import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-to-canonical'
+import {
+  CanonicalImportRow,
+  transformImportRows,
+  type TransformIssue,
+} from '@/lib/import/transform-to-canonical'
 import { detectDateFormatFromRows, type DateFormatHint } from '@/lib/import-date-format'
 import {
   ALLOWED_POSTING_STATUSES,
@@ -72,10 +76,21 @@ export default function CSVUploader({
   const [detectionLoading, setDetectionLoading] = useState(false)
   const [detectedInstitution, setDetectedInstitution] = useState<string | null>(null)
   const [currentImport, setCurrentImport] = useState<ImportRecord | null>(null)
+  const [importIssues, setImportIssues] = useState<
+    Array<{
+      id: string
+      row_number: number | null
+      severity: 'error' | 'warning'
+      message: string
+    }>
+  >([])
+  const [importIssuesCount, setImportIssuesCount] = useState(0)
+  const [importIssuesError, setImportIssuesError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<{
     transactions: CanonicalImportRow[]
     errors: Array<{ rowNumber: number; field: string; message: string }>
-  }>({ transactions: [], errors: [] })
+    issues: TransformIssue[]
+  }>({ transactions: [], errors: [], issues: [] })
   const [previewLoading, setPreviewLoading] = useState(false)
   const [statusValues, setStatusValues] = useState<Array<{ value: string; key: string }>>([])
   const [statusMap, setStatusMap] = useState<Record<string, StatusMappingValue | ''>>({})
@@ -151,6 +166,9 @@ export default function CSVUploader({
     setHeaderFingerprint(null)
     setHeaderSignature(null)
     setCurrentImport(null)
+    setImportIssues([])
+    setImportIssuesCount(0)
+    setImportIssuesError(null)
     setAccountSuggestion(null)
     setAccountTouched(false)
     setDetectedInstitution(null)
@@ -261,6 +279,26 @@ export default function CSVUploader({
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load import status'
       setError(message)
+    }
+  }
+
+  const fetchImportIssues = async (importId: string) => {
+    try {
+      const result = await apiRequest<{
+        issues: Array<{
+          id: string
+          row_number: number | null
+          severity: 'error' | 'warning'
+          message: string
+        }>
+        total: number
+      }>(`/api/imports/${importId}/issues?limit=5`)
+      setImportIssues(result.issues)
+      setImportIssuesCount(result.total)
+      setImportIssuesError(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load import issues'
+      setImportIssuesError(message)
     }
   }
 
@@ -398,6 +436,12 @@ export default function CSVUploader({
     return () => window.clearInterval(interval)
   }, [currentImport?.id, currentImport?.status])
 
+  useEffect(() => {
+    if (!currentImport?.id) return
+    if (['queued', 'running'].includes(currentImport.status)) return
+    void fetchImportIssues(currentImport.id)
+  }, [currentImport?.id, currentImport?.status])
+
   const mappingValidation = useMemo(
     () => validateMapping({ mapping, amountStrategy }),
     [mapping, amountStrategy]
@@ -407,7 +451,7 @@ export default function CSVUploader({
     let cancelled = false
 
     if (parsedRows.length === 0) {
-      setPreviewResult({ transactions: [], errors: [] })
+      setPreviewResult({ transactions: [], errors: [], issues: [] })
       setPreviewLoading(false)
       return undefined
     }
@@ -432,7 +476,7 @@ export default function CSVUploader({
           const message =
             err instanceof Error ? err.message : 'Failed to build preview'
           setError(message)
-          setPreviewResult({ transactions: [], errors: [] })
+          setPreviewResult({ transactions: [], errors: [], issues: [] })
         }
       } finally {
         if (!cancelled) {
@@ -446,7 +490,15 @@ export default function CSVUploader({
     return () => {
       cancelled = true
     }
-  }, [parsedRows, mapping, amountStrategy, accountId, statusMap, detectedInstitution])
+  }, [
+    parsedRows,
+    mapping,
+    amountStrategy,
+    accountId,
+    sanitizedStatusMap,
+    detectedDateFormat,
+    detectedInstitution,
+  ])
 
   useEffect(() => {
     if (!mapping.bank_status) {
@@ -507,6 +559,21 @@ export default function CSVUploader({
     }
   }, [parsedRows.length, previewResult.errors])
 
+  const previewIssueSummary = useMemo(() => {
+    if (previewResult.issues.length === 0) {
+      return null
+    }
+
+    const topMessages = previewResult.issues
+      .slice(0, 3)
+      .map((issue) => issue.message)
+
+    return {
+      total: previewResult.issues.length,
+      topMessages,
+    }
+  }, [previewResult.issues])
+
   const statusMappingMissing = useMemo(() => {
     if (!mapping.bank_status || statusValues.length === 0) return []
     return statusValues.filter((status) => !statusMap[status.key])
@@ -552,6 +619,9 @@ export default function CSVUploader({
     setError(null)
     setSuccessMessage(null)
     setCurrentImport(null)
+    setImportIssues([])
+    setImportIssuesCount(0)
+    setImportIssuesError(null)
 
     try {
       if (!accountId) {
@@ -578,10 +648,6 @@ export default function CSVUploader({
 
       if (previewLoading) {
         throw new Error('Preview is still loading. Please wait.')
-      }
-
-      if (statusMappingMissing.length > 0) {
-        throw new Error('Map all status values before importing.')
       }
 
       if (previewResult.errors.length > 0 && !skipInvalidRows) {
@@ -639,6 +705,7 @@ export default function CSVUploader({
           statusMap: sanitizedStatusMap,
           dateFormat: detectedDateFormat,
           errors: previewResult.errors,
+          issues: previewResult.issues,
           skippedInvalidRows: skipInvalidRows,
           detectedInstitution,
         })
@@ -716,6 +783,10 @@ export default function CSVUploader({
   const suggestionConfidenceLabel = accountSuggestion
     ? `${Math.round(accountSuggestion.confidence * 100)}%`
     : null
+  const failedRows = currentImport?.error_rows ?? 0
+  const showImportIssues =
+    Boolean(currentImport) &&
+    (importIssuesCount > 0 || Boolean(importIssuesError) || currentImport.status === 'failed')
 
   return (
     <div className="space-y-6">
@@ -904,6 +975,39 @@ export default function CSVUploader({
           {currentImport.last_error && currentImport.status === 'failed' && (
             <p className="mt-4 text-sm text-rose-600">{currentImport.last_error}</p>
           )}
+
+          {showImportIssues && (
+            <div className="mt-4 space-y-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-rose-700">Import issues</p>
+                  <p className="text-xs text-rose-600">
+                    {failedRows} failed row(s). {importIssuesCount} issue(s) recorded.
+                  </p>
+                </div>
+                {currentImport && (
+                  <a
+                    href={`/api/imports/${currentImport.id}/issues?format=csv`}
+                    className="text-xs font-semibold text-rose-700 underline hover:text-rose-900"
+                  >
+                    Download row issues
+                  </a>
+                )}
+              </div>
+              {importIssuesError && (
+                <p className="text-xs text-rose-600">{importIssuesError}</p>
+              )}
+              {importIssues.length > 0 && (
+                <ul className="list-inside list-disc text-xs text-rose-700">
+                  {importIssues.map((issue) => (
+                    <li key={issue.id}>
+                      Row {issue.row_number ?? 'N/A'}: {issue.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -936,6 +1040,14 @@ export default function CSVUploader({
               message={`We could not parse ${previewErrorSummary.total} rows (${Math.round(
                 previewErrorSummary.errorRate * 100
               )}%). Check ${previewErrorSummary.dateErrors} date and ${previewErrorSummary.amountErrors} amount values.`}
+            />
+          )}
+
+          {previewIssueSummary && (
+            <AlertBanner
+              variant="warning"
+              title="Status and category warnings"
+              message={`We found ${previewIssueSummary.total} warning(s). ${previewIssueSummary.topMessages.join(' ')}`}
             />
           )}
 
@@ -1013,8 +1125,11 @@ export default function CSVUploader({
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Category
+                  Category (internal ID)
                 </label>
+                <p className="mt-1 text-xs text-slate-400">
+                  Only map internal category IDs. Other labels stay in raw import data.
+                </p>
                 <Select
                   value={mapping.category ?? ''}
                   onChange={(event) => updateMappingField('category', event.target.value)}
@@ -1064,7 +1179,7 @@ export default function CSVUploader({
               </div>
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Status
+                  Bank status
                 </label>
                 <Select
                   value={mapping.bank_status ?? ''}
@@ -1087,7 +1202,8 @@ export default function CSVUploader({
               <div>
                 <p className="text-sm font-semibold text-slate-900">Status mapping</p>
                 <p className="text-xs text-slate-500">
-                  Map each CSV status to pending, posted, cleared, reconciled, or ignore.
+                  Map each CSV status to pending, posted, cleared, reconciled, or ignore. Unmapped
+                  values will be normalized to pending/posted or default to posted.
                 </p>
               </div>
               {statusValues.length === 0 && (
@@ -1095,9 +1211,9 @@ export default function CSVUploader({
               )}
               {statusValues.length > 0 && statusMappingMissing.length > 0 && (
                 <AlertBanner
-                  variant="error"
-                  title="Status mapping required"
-                  message="Every status value must be mapped or ignored before import."
+                  variant="warning"
+                  title="Unmapped status values"
+                  message="Unmapped values will be normalized automatically and recorded as warnings."
                 />
               )}
               {statusValues.length > 0 && (
@@ -1150,7 +1266,6 @@ export default function CSVUploader({
                 previewLoading ||
                 previewResult.transactions.length === 0 ||
                 (previewResult.errors.length > 0 && !skipInvalidRows) ||
-                statusMappingMissing.length > 0 ||
                 ['queued', 'running'].includes(currentImport?.status ?? '')
               }
               variant="primary"

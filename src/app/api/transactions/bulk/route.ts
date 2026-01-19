@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { recordReviewAction } from '@/lib/review-actions';
+import { validateTransactionStatusPayload } from '@/lib/transaction-status';
 
 const ACTIONS = [
   'mark_reviewed',
@@ -19,6 +20,7 @@ type BulkAction = (typeof ACTIONS)[number];
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    validateTransactionStatusPayload(body ?? {});
     const { ids, action, categoryId, accountId, approvedBy } = body ?? {};
 
     if (!Array.isArray(ids) || ids.length === 0) {

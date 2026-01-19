@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createRuleFromApproval } from '@/lib/categorization-engine'
 import { recordReviewAction } from '@/lib/review-actions'
+import { validateTransactionStatusPayload } from '@/lib/transaction-status'
 
 export const runtime = 'nodejs'
 
@@ -19,6 +20,8 @@ export async function POST(
         { status: 400 }
       )
     }
+
+    validateTransactionStatusPayload(body as Record<string, unknown>)
 
     const { categoryId = undefined, markReviewed = true, approvedBy } = body as {
       categoryId?: string | null
@@ -44,19 +47,13 @@ export async function POST(
 
     const hasCategoryId = Object.prototype.hasOwnProperty.call(body, 'categoryId')
     const shouldReview = markReviewed ?? true
+    const now = new Date().toISOString()
 
     const updatePayload: Record<string, unknown> = {}
-    if (hasCategoryId) {
-      updatePayload.category_id = categoryId
-      updatePayload.primary_category_id = categoryId
-    }
-    if (shouldReview) {
-      updatePayload.reviewed = true
-      updatePayload.reviewed_at = new Date().toISOString()
-      updatePayload.review_status = 'approved'
-      updatePayload.approved_at = new Date().toISOString()
-      updatePayload.approved_by = approvedBy ?? 'manual'
-    }
+    updatePayload.review_status = shouldReview ? 'approved' : 'needs_review'
+    updatePayload.approved_at = shouldReview ? now : null
+    updatePayload.approved_by = shouldReview ? approvedBy ?? 'manual' : null
+    updatePayload.updated_at = now
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('transactions')
       .update(updatePayload)
@@ -85,13 +82,9 @@ export async function POST(
     }
 
     if (shouldReview) {
-      const action =
-        hasCategoryId && categoryId && categoryId !== transaction.primary_category_id
-          ? 'reclass'
-          : 'approve'
       await recordReviewAction({
         transactionId,
-        action,
+        action: 'approve',
         actor: approvedBy ?? 'manual',
         before: {
           review_status: transaction.review_status,
@@ -99,7 +92,7 @@ export async function POST(
         },
         after: {
           review_status: 'approved',
-          category_id: categoryId ?? transaction.primary_category_id ?? transaction.category_id,
+          category_id: transaction.primary_category_id ?? transaction.category_id,
         },
       })
     }

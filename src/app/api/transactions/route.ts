@@ -10,10 +10,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { createRuleFromApproval } from '@/lib/categorization-engine';
 import { recordReviewAction } from '@/lib/review-actions';
+import { validateTransactionStatusPayload } from '@/lib/transaction-status';
 
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
+    validateTransactionStatusPayload(body as Record<string, unknown>);
     const { id, category_id, subcategory_id, reviewed } = body;
     const shouldReview = reviewed ?? true;
 
@@ -47,9 +49,7 @@ export async function PATCH(request: NextRequest) {
         category_id: category_id || null,
         subcategory_id: subcategory_id || null,
         primary_category_id: category_id || null,
-        reviewed: shouldReview,
         review_status: shouldReview ? 'approved' : 'needs_review',
-        reviewed_at: shouldReview ? now : null,
         approved_at: shouldReview ? now : null,
         approved_by: shouldReview ? 'legacy' : null,
         updated_at: now,

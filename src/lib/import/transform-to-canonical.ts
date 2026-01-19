@@ -7,12 +7,22 @@ import {
   ReconciliationStatus,
 } from '@/types'
 import { type DateFormatHint } from '@/lib/import-date-format'
-import { mapStatusValue, normalizeStatusKey, type StatusMappingValue } from '@/lib/import-status'
+import { resolveStatusValue, type StatusMappingValue } from '@/lib/import-status'
+import { isUuid } from '@/lib/uuid'
 
 export type TransformError = {
   rowNumber: number
   field: 'date' | 'amount' | 'inflow' | 'outflow' | 'payee' | 'status'
   message: string
+  rawRow?: CSVRow
+}
+
+export type TransformIssue = {
+  rowNumber: number
+  field: 'status' | 'category'
+  severity: 'warning' | 'error'
+  message: string
+  rawRow?: CSVRow
 }
 
 export type CanonicalImportRow = ParsedTransaction & {
@@ -132,15 +142,20 @@ export async function transformImportRows({
   importId?: string | null
   statusMap?: Record<string, StatusMappingValue> | null
   dateFormat?: DateFormatHint | null
-}): Promise<{ transactions: CanonicalImportRow[]; errors: TransformError[] }> {
+}): Promise<{
+  transactions: CanonicalImportRow[]
+  errors: TransformError[]
+  issues: TransformIssue[]
+}> {
   const errors: TransformError[] = []
+  const issues: TransformIssue[] = []
   const transactions: CanonicalImportRow[] = []
 
   for (const [index, row] of rows.entries()) {
     const rowNumber = index + 1
     const dateRaw = normalizeValue(readMappedValue(row, mapping.date))
     if (!dateRaw) {
-      errors.push({ rowNumber, field: 'date', message: 'Date value is missing.' })
+      errors.push({ rowNumber, field: 'date', message: 'Date value is missing.', rawRow: row })
       continue
     }
 
@@ -152,6 +167,7 @@ export async function transformImportRows({
         rowNumber,
         field: 'date',
         message: error instanceof Error ? error.message : 'Unable to parse date.',
+        rawRow: row,
       })
       continue
     }
@@ -177,6 +193,7 @@ export async function transformImportRows({
         rowNumber,
         field: amountStrategy === 'signed' ? 'amount' : 'inflow',
         message: error instanceof Error ? error.message : 'Unable to parse amount.',
+        rawRow: row,
       })
       continue
     }
@@ -185,7 +202,17 @@ export async function transformImportRows({
     const description = normalizeValue(readMappedValue(row, mapping.description))
     const memo = normalizeValue(readMappedValue(row, mapping.memo))
     const reference = normalizeValue(readMappedValue(row, mapping.reference))
-    const category = normalizeValue(readMappedValue(row, mapping.category))
+    const rawCategory = normalizeValue(readMappedValue(row, mapping.category))
+    const category = rawCategory && isUuid(rawCategory) ? rawCategory : null
+    if (rawCategory && !category) {
+      issues.push({
+        rowNumber,
+        field: 'category',
+        severity: 'warning',
+        message: `Category value "${rawCategory}" is not a valid internal category ID.`,
+        rawRow: row,
+      })
+    }
     const resolvedDescription = description ?? memo ?? reference ?? payee ?? null
     const resolvedPayee = payee ?? resolvedDescription ?? 'Unknown'
     if (!payee && !description) {
@@ -193,21 +220,20 @@ export async function transformImportRows({
         rowNumber,
         field: 'payee',
         message: 'Payee or description is required.',
+        rawRow: row,
       })
       continue
     }
     const rawStatus = normalizeValue(readMappedValue(row, mapping.bank_status))
-    const statusValue = mapStatusValue(rawStatus, statusMap)
-    if (rawStatus && mapping.bank_status) {
-      const normalizedStatus = normalizeStatusKey(rawStatus)
-      if (!statusMap || !statusMap[normalizedStatus]) {
-        errors.push({
-          rowNumber,
-          field: 'status',
-          message: `Status "${rawStatus}" is not mapped.`,
-        })
-        continue
-      }
+    const { value: statusValue, issue: statusIssue } = resolveStatusValue(rawStatus, statusMap)
+    if (statusIssue) {
+      issues.push({
+        rowNumber,
+        field: 'status',
+        severity: 'warning',
+        message: statusIssue,
+        rawRow: row,
+      })
     }
     const bankStatus: BankStatus | null =
       statusValue === 'pending' || statusValue === 'posted' ? statusValue : null
@@ -250,5 +276,5 @@ export async function transformImportRows({
     })
   }
 
-  return { transactions, errors }
+  return { transactions, errors, issues }
 }

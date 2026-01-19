@@ -95,6 +95,14 @@ export default function TransactionTable({
       const payload: Record<string, unknown> = {
         markReviewed: markReviewed ?? true,
       }
+
+      if (categoryId) {
+        await apiRequest(`/api/transactions/${transactionId}/categorize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category_id: categoryId }),
+        })
+      }
       if (categoryId !== undefined) {
         payload.categoryId = categoryId
       }
