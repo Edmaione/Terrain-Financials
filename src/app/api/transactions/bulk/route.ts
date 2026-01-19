@@ -20,7 +20,10 @@ type BulkAction = (typeof ACTIONS)[number];
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    validateTransactionStatusPayload(body ?? {});
+    const statusValidation = validateTransactionStatusPayload(body ?? {});
+    if (!statusValidation.ok) {
+      return NextResponse.json({ ok: false, error: statusValidation.error }, { status: 400 });
+    }
     const { ids, action, categoryId, accountId, approvedBy } = body ?? {};
 
     if (!Array.isArray(ids) || ids.length === 0) {

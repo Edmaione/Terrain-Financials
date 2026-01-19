@@ -9,7 +9,13 @@ export async function POST(
 ) {
   try {
     const body = await request.json();
-    validateTransactionStatusPayload(body ?? {});
+    const statusValidation = validateTransactionStatusPayload(body ?? {});
+    if (!statusValidation.ok) {
+      return NextResponse.json(
+        { ok: false, error: statusValidation.error },
+        { status: 400 }
+      );
+    }
     const { category_id, subcategory_id } = body;
     const transactionId = params.id;
 

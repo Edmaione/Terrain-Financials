@@ -15,7 +15,10 @@ import { validateTransactionStatusPayload } from '@/lib/transaction-status';
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    validateTransactionStatusPayload(body as Record<string, unknown>);
+    const statusValidation = validateTransactionStatusPayload(body as Record<string, unknown>);
+    if (!statusValidation.ok) {
+      return NextResponse.json({ ok: false, error: statusValidation.error }, { status: 400 });
+    }
     const { id, category_id, subcategory_id, reviewed } = body;
     const shouldReview = reviewed ?? true;
 

@@ -13,18 +13,29 @@ export function isAllowedTransactionStatus(value: unknown): value is Transaction
   )
 }
 
-export function assertValidTransactionStatus(value: unknown) {
-  if (value === null || value === undefined) return
-  if (!isAllowedTransactionStatus(value)) {
-    throw new Error(
-      `Invalid transaction status "${String(
-        value
-      )}". Allowed values: ${ALLOWED_TRANSACTION_STATUSES.join(', ')}.`
-    )
-  }
-}
+type TransactionStatusValidationResult = { ok: true } | { ok: false; error: string }
 
-export function validateTransactionStatusPayload(payload: Record<string, unknown>) {
-  if (!Object.prototype.hasOwnProperty.call(payload, 'status')) return
-  assertValidTransactionStatus(payload.status)
+export function validateTransactionStatusPayload(
+  payload: Record<string, unknown>
+): TransactionStatusValidationResult {
+  if (!Object.prototype.hasOwnProperty.call(payload, 'status')) {
+    return { ok: true }
+  }
+
+  const { status } = payload
+
+  if (status === null || status === undefined) {
+    return { ok: true }
+  }
+
+  if (!isAllowedTransactionStatus(status)) {
+    return {
+      ok: false,
+      error: `Invalid transaction status "${String(
+        status
+      )}". Allowed values: ${ALLOWED_TRANSACTION_STATUSES.join(', ')}.`,
+    }
+  }
+
+  return { ok: true }
 }
