@@ -5,6 +5,11 @@
   - Confirm `review_status` becomes `approved`.
   - Confirm `approved_at` and `approved_by` are populated.
   - Confirm `transactions.status` remains unchanged.
+  - Confirm approving with a category change records a `review_action` of `reclass` with the new category.
+
+## API validation
+- [ ] Send an approval request with an invalid `status` payload value.
+  - Confirm the API returns a 400 response with the validation error message.
 
 ## CSV import status normalization
 - [ ] Import a CSV with a Status column containing values like `complete`, `completed`, `pending`,

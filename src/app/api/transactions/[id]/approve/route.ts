@@ -21,7 +21,13 @@ export async function POST(
       )
     }
 
-    validateTransactionStatusPayload(body as Record<string, unknown>)
+    const statusValidation = validateTransactionStatusPayload(body as Record<string, unknown>)
+    if (!statusValidation.ok) {
+      return NextResponse.json(
+        { ok: false, error: statusValidation.error },
+        { status: 400 }
+      )
+    }
 
     const { categoryId = undefined, markReviewed = true, approvedBy } = body as {
       categoryId?: string | null
@@ -82,17 +88,22 @@ export async function POST(
     }
 
     if (shouldReview) {
+      const beforeCategory = transaction.primary_category_id ?? transaction.category_id
+      const afterCategory = categoryId ?? beforeCategory
+      const action =
+        categoryId && categoryId !== beforeCategory ? 'reclass' : 'approve'
+
       await recordReviewAction({
         transactionId,
-        action: 'approve',
+        action,
         actor: approvedBy ?? 'manual',
         before: {
           review_status: transaction.review_status,
-          category_id: transaction.primary_category_id ?? transaction.category_id,
+          category_id: beforeCategory,
         },
         after: {
           review_status: 'approved',
-          category_id: transaction.primary_category_id ?? transaction.category_id,
+          category_id: afterCategory,
         },
       })
     }

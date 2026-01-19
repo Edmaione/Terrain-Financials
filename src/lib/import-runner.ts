@@ -37,6 +37,30 @@ type ImportRowIssue = {
   rawRow?: Record<string, string> | null
 }
 
+function buildStatusIssue(
+  transaction: PreparedTransaction['transaction'],
+  message: string
+): ImportRowIssue {
+  return {
+    rowNumber: transaction.import_row_number ?? null,
+    severity: 'error',
+    message,
+    rawRow: {
+      raw: transaction.raw_csv_data ?? null,
+      normalized: {
+        account_id: transaction.account_id,
+        date: transaction.date,
+        payee: transaction.payee,
+        amount: transaction.amount,
+        bank_status: transaction.bank_status ?? null,
+        reconciliation_status: transaction.reconciliation_status ?? null,
+        source: transaction.source,
+        import_row_number: transaction.import_row_number,
+      },
+    },
+  }
+}
+
 async function fetchImport(importId: string) {
   const { data, error } = await supabaseAdmin
     .from('imports')
@@ -71,11 +95,28 @@ async function insertTransactions(items: PreparedTransaction[]) {
     }
   }
 
+  const errors: ImportRowIssue[] = []
+  const validItems: PreparedTransaction[] = []
   for (const item of items) {
-    validateTransactionStatusPayload(item.transaction as Record<string, unknown>)
+    const statusValidation = validateTransactionStatusPayload(
+      item.transaction as Record<string, unknown>
+    )
+    if (!statusValidation.ok) {
+      errors.push(buildStatusIssue(item.transaction, statusValidation.error))
+    } else {
+      validItems.push(item)
+    }
   }
 
-  const insertPayload = items.map((item) => item.transaction)
+  if (validItems.length === 0) {
+    return {
+      insertedRows: [] as InsertedTransactionRow[],
+      skippedCount: 0,
+      errors,
+    }
+  }
+
+  const insertPayload = validItems.map((item) => item.transaction)
   const { data, error } = await supabaseAdmin
     .from('transactions')
     .upsert(insertPayload, {
@@ -87,7 +128,7 @@ async function insertTransactions(items: PreparedTransaction[]) {
   if (error) {
     const fallbackRows: InsertedTransactionRow[] = []
     const fallbackErrors: ImportRowIssue[] = []
-    for (const item of items) {
+    for (const item of validItems) {
       const { data: rowData, error: rowError } = await supabaseAdmin
         .from('transactions')
         .upsert([item.transaction], {
@@ -124,7 +165,7 @@ async function insertTransactions(items: PreparedTransaction[]) {
     return {
       insertedRows: fallbackRows,
       skippedCount: insertPayload.length - fallbackRows.length,
-      errors: fallbackErrors,
+      errors: [...errors, ...fallbackErrors],
     }
   }
 
@@ -132,7 +173,7 @@ async function insertTransactions(items: PreparedTransaction[]) {
   const skippedCount = insertPayload.length - insertedRows.length
 
   const splitsByHash = new Map(
-    items.map((item) => [item.transaction.import_row_hash, item.splits])
+    validItems.map((item) => [item.transaction.import_row_hash, item.splits])
   )
 
   const splitRows = insertedRows.flatMap((row) => {
@@ -156,14 +197,22 @@ async function insertTransactions(items: PreparedTransaction[]) {
     }
   }
 
-  return { insertedRows, skippedCount, errors: [] as ImportRowIssue[] }
+  return { insertedRows, skippedCount, errors }
 }
 
 async function updateTransactions(items: Array<PreparedTransaction & { id: string }>) {
   let updatedCount = 0
+  const errors: ImportRowIssue[] = []
 
   for (const item of items) {
-    validateTransactionStatusPayload(item.transaction as Record<string, unknown>)
+    const statusValidation = validateTransactionStatusPayload(
+      item.transaction as Record<string, unknown>
+    )
+    if (!statusValidation.ok) {
+      errors.push(buildStatusIssue(item.transaction, statusValidation.error))
+      continue
+    }
+
     const { error } = await supabaseAdmin
       .from('transactions')
       .update({
@@ -206,7 +255,7 @@ async function updateTransactions(items: Array<PreparedTransaction & { id: strin
     updatedCount += 1
   }
 
-  return updatedCount
+  return { updatedCount, errors }
 }
 
 export async function runCsvImport({
@@ -437,8 +486,18 @@ export async function runCsvImport({
       }
 
       if (updates.length > 0) {
-        const updatedCount = await updateTransactions(updates)
+        const { updatedCount, errors: updateErrors } = await updateTransactions(updates)
         skippedRows += updatedCount
+        if (updateErrors.length > 0) {
+          errorRows += updateErrors.length
+          importRowIssues.push(...updateErrors)
+          await supabaseAdmin
+            .from('imports')
+            .update({
+              last_error: updateErrors[0]?.message ?? 'Failed to update some rows.',
+            })
+            .eq('id', importId)
+        }
       }
 
       processedRows += chunk.length
