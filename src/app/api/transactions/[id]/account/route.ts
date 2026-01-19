@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { validateTransactionStatusPayload } from '@/lib/transaction-status'
 
 export async function POST(
   request: Request,
@@ -7,6 +8,7 @@ export async function POST(
 ) {
   try {
     const body = await request.json()
+    validateTransactionStatusPayload(body ?? {})
     const { accountId, changedBy } = body ?? {}
 
     if (!params.id) {

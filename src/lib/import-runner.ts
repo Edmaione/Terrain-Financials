@@ -1,12 +1,17 @@
 import { parseCSVText } from '@/lib/csv-parser'
 import { prepareCsvTransactions, type PreparedTransaction } from '@/lib/csv-importer'
 import { planCsvImport } from '@/lib/import-idempotency'
-import { CanonicalImportRow, transformImportRows } from '@/lib/import/transform-to-canonical'
+import {
+  CanonicalImportRow,
+  transformImportRows,
+  type TransformIssue,
+} from '@/lib/import/transform-to-canonical'
 import { validateMapping } from '@/lib/import-mapping'
 import { detectAndPairTransfers } from '@/lib/categorization-engine'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { type StatusMappingValue } from '@/lib/import-status'
 import { type DateFormatHint } from '@/lib/import-date-format'
+import { validateTransactionStatusPayload } from '@/lib/transaction-status'
 import { AmountStrategy, ImportFieldMapping, ParsedTransaction } from '@/types'
 
 const CHUNK_SIZE = 500
@@ -64,6 +69,10 @@ async function insertTransactions(items: PreparedTransaction[]) {
       skippedCount: 0,
       errors: [] as ImportRowIssue[],
     }
+  }
+
+  for (const item of items) {
+    validateTransactionStatusPayload(item.transaction as Record<string, unknown>)
   }
 
   const insertPayload = items.map((item) => item.transaction)
@@ -154,6 +163,7 @@ async function updateTransactions(items: Array<PreparedTransaction & { id: strin
   let updatedCount = 0
 
   for (const item of items) {
+    validateTransactionStatusPayload(item.transaction as Record<string, unknown>)
     const { error } = await supabaseAdmin
       .from('transactions')
       .update({
@@ -260,7 +270,8 @@ export async function runCsvImport({
     }
 
     let parsedTransactions: CanonicalImportRow[] = []
-    let transformErrors: Array<{ rowNumber: number; field: string; message: string }> = []
+    let transformErrors: Array<{ rowNumber: number; field: string; message: string; rawRow?: Record<string, string> }> = []
+    let transformIssues: TransformIssue[] = []
     let totalRowCount = totalRows ?? 0
 
     if (canonicalRows && canonicalRows.length > 0) {
@@ -282,6 +293,7 @@ export async function runCsvImport({
       })
       parsedTransactions = transformResult.transactions
       transformErrors = transformResult.errors
+      transformIssues = transformResult.issues
     } else {
       throw new Error('Missing canonical rows or CSV file content for import.')
     }
@@ -292,6 +304,7 @@ export async function runCsvImport({
         parsedCount: parsedTransactions.length,
         sample: parsedTransactions.slice(0, 3),
         transformErrors: transformErrors.slice(0, 3),
+        transformIssues: transformIssues.slice(0, 3),
       })
     }
 
@@ -313,6 +326,28 @@ export async function runCsvImport({
     let errorRows = providedErrorRows ?? transformErrors.length
     let descriptionPopulated = 0
     let descriptionMissing = 0
+
+    if (transformErrors.length > 0) {
+      importRowIssues.push(
+        ...transformErrors.map((entry) => ({
+          rowNumber: entry.rowNumber ?? null,
+          severity: 'error' as const,
+          message: entry.message,
+          rawRow: entry.rawRow ?? null,
+        }))
+      )
+    }
+
+    if (transformIssues.length > 0) {
+      importRowIssues.push(
+        ...transformIssues.map((issue) => ({
+          rowNumber: issue.rowNumber ?? null,
+          severity: issue.severity,
+          message: issue.message,
+          rawRow: issue.rawRow ?? null,
+        }))
+      )
+    }
 
     for (let offset = 0; offset < parsedTransactions.length; offset += CHUNK_SIZE) {
       const currentImport = await fetchImport(importId)
