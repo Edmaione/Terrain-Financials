@@ -1,10 +1,89 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { createRuleFromApproval } from '@/lib/categorization-engine'
+import { createRuleFromApproval, normalizePayee } from '@/lib/categorization-engine'
 import { recordReviewAction } from '@/lib/review-actions'
 import { validateTransactionStatusPayload } from '@/lib/transaction-status'
 
 export const runtime = 'nodejs'
+
+/**
+ * Track when user overrides an AI suggestion - used to improve rule accuracy
+ */
+async function trackCorrectionIfNeeded(
+  transaction: { payee: string; ai_suggested_category?: string | null; applied_rule_id?: string | null },
+  userSelectedCategoryId: string
+): Promise<void> {
+  const aiSuggested = transaction.ai_suggested_category;
+
+  // If there was an AI suggestion and user chose something different, track it
+  if (aiSuggested && aiSuggested !== userSelectedCategoryId) {
+    console.info('[API] User corrected AI suggestion', {
+      payee: transaction.payee,
+      aiSuggested,
+      userSelected: userSelectedCategoryId,
+    });
+
+    // If there was an applied rule, mark it as wrong
+    if (transaction.applied_rule_id) {
+      const { error } = await supabaseAdmin
+        .from('categorization_rules')
+        .update({
+          times_wrong: supabaseAdmin.rpc('increment', { x: 1 }),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', transaction.applied_rule_id);
+
+      if (error) {
+        // Fallback: fetch and update manually
+        const { data: rule } = await supabaseAdmin
+          .from('categorization_rules')
+          .select('times_wrong, confidence')
+          .eq('id', transaction.applied_rule_id)
+          .single();
+
+        if (rule) {
+          const newTimesWrong = (rule.times_wrong ?? 0) + 1;
+          const newConfidence = Math.max(0.1, (rule.confidence ?? 0.85) * 0.9);
+
+          await supabaseAdmin
+            .from('categorization_rules')
+            .update({
+              times_wrong: newTimesWrong,
+              confidence: newConfidence,
+              is_active: newConfidence >= 0.5,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', transaction.applied_rule_id);
+        }
+      }
+    }
+
+    // Try to find and penalize the rule that suggested wrong category via normalized payee
+    const normalizedPayee = normalizePayee(transaction.payee);
+    const { data: wrongRules } = await supabaseAdmin
+      .from('categorization_rules')
+      .select('id, times_wrong, confidence')
+      .eq('payee_pattern_normalized', normalizedPayee)
+      .eq('category_id', aiSuggested)
+      .limit(1);
+
+    if (wrongRules && wrongRules.length > 0) {
+      const wrongRule = wrongRules[0];
+      const newTimesWrong = (wrongRule.times_wrong ?? 0) + 1;
+      const newConfidence = Math.max(0.1, (wrongRule.confidence ?? 0.85) * 0.9);
+
+      await supabaseAdmin
+        .from('categorization_rules')
+        .update({
+          times_wrong: newTimesWrong,
+          confidence: newConfidence,
+          is_active: newConfidence >= 0.5,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', wrongRule.id);
+    }
+  }
+}
 
 export async function POST(
   request: NextRequest,
@@ -38,7 +117,7 @@ export async function POST(
     const { data: transaction, error: fetchError } = await supabaseAdmin
       .from('transactions')
       .select(
-        'id, account_id, payee, description, review_status, category_id, primary_category_id, bank_status'
+        'id, account_id, payee, description, review_status, category_id, primary_category_id, bank_status, ai_suggested_category, applied_rule_id'
       )
       .eq('id', transactionId)
       .single()
@@ -80,6 +159,14 @@ export async function POST(
     }
 
     if (shouldReview && hasCategoryId && categoryId && transaction) {
+      // Track if this was a correction of AI suggestion
+      try {
+        await trackCorrectionIfNeeded(transaction, categoryId);
+      } catch (correctionError) {
+        console.warn('[API] Correction tracking failed (non-fatal):', correctionError);
+      }
+
+      // Create rule from this approval
       try {
         await createRuleFromApproval(transaction.payee, transaction.description, categoryId)
       } catch (ruleError) {

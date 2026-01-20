@@ -287,11 +287,14 @@ COMMENT ON TABLE "public"."categories" IS 'Chart of accounts matching QuickBooks
 CREATE TABLE IF NOT EXISTS "public"."categorization_rules" (
     "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "payee_pattern" "text" NOT NULL,
+    "payee_pattern_normalized" "text",
     "description_pattern" "text",
     "category_id" "uuid" NOT NULL,
     "subcategory_id" "uuid",
-    "confidence" numeric(3,2) DEFAULT 0.95,
+    "confidence" numeric(3,2) DEFAULT 0.85,
     "times_applied" integer DEFAULT 0,
+    "times_correct" integer DEFAULT 0,
+    "times_wrong" integer DEFAULT 0,
     "last_used" timestamp with time zone,
     "created_by" "text" DEFAULT 'user'::"text",
     "is_active" boolean DEFAULT true,
@@ -930,6 +933,9 @@ CREATE INDEX "categories_parent_idx" ON "public"."categories" USING "btree" ("pa
 
 
 CREATE INDEX "idx_categorization_rules_payee" ON "public"."categorization_rules" USING "btree" ("payee_pattern");
+
+
+CREATE INDEX IF NOT EXISTS "idx_categorization_rules_payee_norm" ON "public"."categorization_rules" USING "btree" ("payee_pattern_normalized");
 
 
 

@@ -4,6 +4,119 @@ import { suggestCategory } from './openai';
 import { Transaction, Category, CategorizationRule } from '@/types';
 
 /**
+ * Normalize a payee name for fuzzy matching
+ * "AMAZON.COM*ABC123" → "amazon"
+ * "THE HOME DEPOT #1234" → "home depot"
+ */
+export function normalizePayee(payee: string): string {
+  return payee
+    .toLowerCase()
+    // Remove common suffixes with numbers (order IDs, store numbers, etc.)
+    .replace(/[*#]\s*[a-z0-9]+$/i, '')
+    .replace(/\s*#\d+$/i, '')
+    .replace(/\s*\d{4,}$/i, '')
+    // Remove common prefixes
+    .replace(/^(the|a|an)\s+/i, '')
+    // Remove special characters but keep spaces
+    .replace(/[^a-z0-9\s]/g, ' ')
+    // Collapse multiple spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Calculate similarity between two normalized strings (0-1)
+ * Uses a simple contains-based approach + prefix matching
+ */
+function calculateSimilarity(a: string, b: string): number {
+  if (a === b) return 1.0;
+  if (a.length === 0 || b.length === 0) return 0;
+
+  const shorter = a.length < b.length ? a : b;
+  const longer = a.length < b.length ? b : a;
+
+  // Exact substring match
+  if (longer.includes(shorter)) {
+    return 0.9 * (shorter.length / longer.length) + 0.1;
+  }
+
+  // Check if all words in shorter are in longer
+  const shorterWords = shorter.split(' ').filter(w => w.length > 0);
+  const longerWords = longer.split(' ').filter(w => w.length > 0);
+
+  if (shorterWords.length > 0) {
+    const matchedWords = shorterWords.filter(sw =>
+      longerWords.some(lw => lw.includes(sw) || sw.includes(lw))
+    );
+    if (matchedWords.length === shorterWords.length) {
+      return 0.85;
+    }
+    if (matchedWords.length > 0) {
+      return 0.5 * (matchedWords.length / shorterWords.length);
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Find a fuzzy match rule for a payee
+ */
+async function findFuzzyMatchRule(
+  payee: string
+): Promise<CategorizationRule | null> {
+  const normalizedPayee = normalizePayee(payee);
+
+  if (!normalizedPayee) return null;
+
+  // First try to find by normalized pattern
+  const { data: normalizedRules } = await supabaseAdmin
+    .from('categorization_rules')
+    .select('*')
+    .eq('is_active', true)
+    .not('payee_pattern_normalized', 'is', null)
+    .order('confidence', { ascending: false });
+
+  if (normalizedRules && normalizedRules.length > 0) {
+    let bestMatch: CategorizationRule | null = null;
+    let bestScore = 0;
+
+    for (const rule of normalizedRules) {
+      const score = calculateSimilarity(normalizedPayee, rule.payee_pattern_normalized || '');
+      // Require at least 70% similarity and factor in confidence
+      if (score >= 0.7 && score * rule.confidence > bestScore) {
+        bestScore = score * rule.confidence;
+        bestMatch = rule;
+      }
+    }
+
+    if (bestMatch && bestScore >= 0.6) {
+      return bestMatch;
+    }
+  }
+
+  // Fallback: try contains matching on original patterns
+  const { data: allRules } = await supabaseAdmin
+    .from('categorization_rules')
+    .select('*')
+    .eq('is_active', true)
+    .order('confidence', { ascending: false });
+
+  if (!allRules) return null;
+
+  for (const rule of allRules) {
+    const ruleNormalized = normalizePayee(rule.payee_pattern);
+    const score = calculateSimilarity(normalizedPayee, ruleNormalized);
+
+    if (score >= 0.7) {
+      return rule;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Categorize a single transaction using rules and AI
  */
 export async function categorizeTransaction(
@@ -26,7 +139,21 @@ export async function categorizeTransaction(
     };
   }
 
-  // Step 2: Try pattern match rules
+  // Step 2: Try fuzzy match rules (new step)
+  const fuzzyMatch = await findFuzzyMatchRule(transaction.payee);
+  if (fuzzyMatch) {
+    await incrementRuleUsage(fuzzyMatch.id);
+    // Slightly reduce confidence for fuzzy matches
+    const adjustedConfidence = Math.min(fuzzyMatch.confidence * 0.9, 0.90);
+    return {
+      category_id: fuzzyMatch.category_id,
+      subcategory_id: fuzzyMatch.subcategory_id || null,
+      confidence: adjustedConfidence,
+      rule_id: fuzzyMatch.id,
+    };
+  }
+
+  // Step 3: Try pattern match rules
   const patternMatch = await findPatternMatchRule(transaction.payee, transaction.description);
   if (patternMatch) {
     await incrementRuleUsage(patternMatch.id);
@@ -38,7 +165,7 @@ export async function categorizeTransaction(
     };
   }
 
-  // Step 3: Use AI to suggest category
+  // Step 4: Use AI to suggest category
   const categories = await getAllCategories();
   const historicalTransactions = await getHistoricalTransactionsForPayee(transaction.payee);
 
@@ -104,31 +231,133 @@ export async function createRuleFromApproval(
   category_id: string,
   subcategory_id?: string
 ): Promise<void> {
-  // Check if rule already exists
+  const normalizedPattern = normalizePayee(payee);
+
+  // Check if rule already exists for this normalized payee and category
   const { data: existing } = await supabaseAdmin
     .from('categorization_rules')
     .select('*')
-    .eq('payee_pattern', payee)
+    .eq('payee_pattern_normalized', normalizedPattern)
     .eq('category_id', category_id)
     .single();
 
   if (existing) {
-    // Rule already exists, just increment usage
-    await incrementRuleUsage(existing.id);
+    // Rule already exists, increment usage and track correctness
+    await incrementRuleCorrect(existing.id);
     return;
   }
 
-  // Create new rule
+  // Check if rule exists for this normalized payee with different category
+  const { data: conflicting } = await supabaseAdmin
+    .from('categorization_rules')
+    .select('*')
+    .eq('payee_pattern_normalized', normalizedPattern)
+    .neq('category_id', category_id)
+    .order('confidence', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (conflicting) {
+    // Existing rule was wrong, decrement its confidence
+    await incrementRuleWrong(conflicting.id);
+  }
+
+  // Create new rule with moderate confidence (not 0.95)
   await supabaseAdmin.from('categorization_rules').insert({
     payee_pattern: payee,
+    payee_pattern_normalized: normalizedPattern,
     description_pattern: description || null,
     category_id,
     subcategory_id: subcategory_id || null,
-    confidence: 0.95,
+    confidence: 0.85, // Start lower, let accuracy build trust
     times_applied: 1,
+    times_correct: 1,
+    times_wrong: 0,
     last_used: new Date().toISOString(),
     created_by: 'user',
   });
+}
+
+/**
+ * Increment correct count and increase confidence
+ */
+async function incrementRuleCorrect(ruleId: string): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from('categorization_rules')
+    .select('times_applied, times_correct, times_wrong, confidence')
+    .eq('id', ruleId)
+    .single();
+
+  if (error || !data) {
+    console.error('Failed to fetch rule for correct increment', error);
+    return;
+  }
+
+  const timesCorrect = (data.times_correct ?? 0) + 1;
+  const timesApplied = (data.times_applied ?? 0) + 1;
+  const timesWrong = data.times_wrong ?? 0;
+
+  // Calculate new confidence based on accuracy
+  const totalFeedback = timesCorrect + timesWrong;
+  let newConfidence = data.confidence ?? 0.85;
+  if (totalFeedback > 0) {
+    const accuracy = timesCorrect / totalFeedback;
+    // Blend current confidence with accuracy, weighted towards accuracy over time
+    newConfidence = Math.min(0.98, data.confidence * 0.7 + accuracy * 0.3);
+  }
+
+  await supabaseAdmin
+    .from('categorization_rules')
+    .update({
+      times_applied: timesApplied,
+      times_correct: timesCorrect,
+      confidence: newConfidence,
+      last_used: new Date().toISOString(),
+    })
+    .eq('id', ruleId);
+}
+
+/**
+ * Increment wrong count and decrease confidence
+ */
+async function incrementRuleWrong(ruleId: string): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from('categorization_rules')
+    .select('times_wrong, times_correct, confidence, is_active')
+    .eq('id', ruleId)
+    .single();
+
+  if (error || !data) {
+    console.error('Failed to fetch rule for wrong increment', error);
+    return;
+  }
+
+  const timesWrong = (data.times_wrong ?? 0) + 1;
+  const timesCorrect = data.times_correct ?? 0;
+
+  // Calculate new confidence
+  const totalFeedback = timesCorrect + timesWrong;
+  let newConfidence = data.confidence ?? 0.85;
+  if (totalFeedback > 0) {
+    const accuracy = timesCorrect / totalFeedback;
+    newConfidence = Math.max(0.1, data.confidence * 0.7 + accuracy * 0.3);
+  } else {
+    // Decrease confidence by 10% for each wrong
+    newConfidence = Math.max(0.1, data.confidence * 0.9);
+  }
+
+  // Archive rules with very low confidence
+  const shouldArchive = newConfidence < 0.5;
+
+  await supabaseAdmin
+    .from('categorization_rules')
+    .update({
+      times_wrong: timesWrong,
+      confidence: newConfidence,
+      is_active: shouldArchive ? false : data.is_active,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ruleId);
 }
 
 /**
@@ -200,11 +429,16 @@ async function getAllCategories(): Promise<Category[]> {
 
 /**
  * Get historical transactions for a payee to help AI learn patterns
+ * Now fetches 20 transactions for better pattern recognition
  */
 async function getHistoricalTransactionsForPayee(
   payee: string
 ): Promise<Array<Transaction & { category: Category | null }>> {
-  const { data } = await supabaseAdmin
+  const normalizedPayee = normalizePayee(payee);
+  const searchTerms = normalizedPayee.split(' ').filter(t => t.length > 2);
+
+  // First try exact-ish match
+  let { data } = await supabaseAdmin
     .from('transactions')
     .select(`
       *,
@@ -212,8 +446,28 @@ async function getHistoricalTransactionsForPayee(
     `)
     .ilike('payee', `%${payee}%`)
     .not('category_id', 'is', null)
+    .eq('review_status', 'approved')
     .order('date', { ascending: false })
-    .limit(10);
+    .limit(20);
+
+  // If not enough results, try normalized search terms
+  if ((!data || data.length < 5) && searchTerms.length > 0) {
+    const fuzzyResults = await supabaseAdmin
+      .from('transactions')
+      .select(`
+        *,
+        category:categories!category_id(*)
+      `)
+      .ilike('payee', `%${searchTerms[0]}%`)
+      .not('category_id', 'is', null)
+      .eq('review_status', 'approved')
+      .order('date', { ascending: false })
+      .limit(20);
+
+    if (fuzzyResults.data && fuzzyResults.data.length > (data?.length || 0)) {
+      data = fuzzyResults.data;
+    }
+  }
 
   return data || [];
 }

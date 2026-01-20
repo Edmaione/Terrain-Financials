@@ -146,11 +146,14 @@ export interface Transaction {
 export interface CategorizationRule {
   id: string;
   payee_pattern: string;
+  payee_pattern_normalized?: string | null;
   description_pattern?: string;
   category_id: string;
   subcategory_id?: string;
   confidence: number;
   times_applied: number;
+  times_correct?: number;
+  times_wrong?: number;
   last_used?: string;
   created_by: 'user' | 'ai';
   is_active: boolean;

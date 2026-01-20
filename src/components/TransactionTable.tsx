@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { IconCheck, IconClipboard } from '@/components/ui/icons'
 import { apiRequest } from '@/lib/api-client'
@@ -26,6 +26,25 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
 })
 
+/**
+ * Get confidence level badge variant based on AI confidence score
+ */
+function getConfidenceBadge(confidence: number | null | undefined): {
+  variant: 'success' | 'warning' | 'error' | 'neutral';
+  label: string;
+} {
+  if (confidence === null || confidence === undefined) {
+    return { variant: 'neutral', label: 'No AI' };
+  }
+  if (confidence >= 0.8) {
+    return { variant: 'success', label: `${Math.round(confidence * 100)}%` };
+  }
+  if (confidence >= 0.5) {
+    return { variant: 'warning', label: `${Math.round(confidence * 100)}%` };
+  }
+  return { variant: 'error', label: `${Math.round(confidence * 100)}%` };
+}
+
 export default function TransactionTable({
   transactions,
   filterSummary,
@@ -50,6 +69,8 @@ export default function TransactionTable({
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [accountProcessingId, setAccountProcessingId] = useState<string | null>(null)
   const [accountOverrides, setAccountOverrides] = useState<Record<string, string>>({})
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const { toast } = useToast()
 
@@ -65,6 +86,120 @@ export default function TransactionTable({
   const accountsById = useMemo(() => {
     return new Map(accounts.map((account) => [account.id, account]))
   }, [accounts])
+
+  // Get unreviewed transactions for quick actions
+  const unreviewedTransactions = useMemo(() => {
+    return transactions.filter(t => t.review_status !== 'approved')
+  }, [transactions])
+
+  // Get high-confidence transactions (80%+)
+  const highConfidenceTransactions = useMemo(() => {
+    return unreviewedTransactions.filter(t => {
+      const confidence = t.confidence ?? t.ai_confidence ?? 0
+      return confidence >= 0.8
+    })
+  }, [unreviewedTransactions])
+
+  // Get low-confidence transactions (<50%)
+  const lowConfidenceTransactions = useMemo(() => {
+    return unreviewedTransactions.filter(t => {
+      const confidence = t.confidence ?? t.ai_confidence ?? 0
+      return confidence < 0.5 || confidence === 0
+    })
+  }, [unreviewedTransactions])
+
+  // Quick selection: Select all high-confidence transactions
+  const selectHighConfidence = useCallback(() => {
+    const ids = highConfidenceTransactions.map(t => t.id)
+    setSelectedIds(ids)
+    toast({
+      variant: 'info',
+      title: `Selected ${ids.length} high-confidence transactions`,
+      description: 'These can be safely bulk approved.',
+    })
+  }, [highConfidenceTransactions, toast])
+
+  // Quick selection: Select all needing review
+  const selectNeedsReview = useCallback(() => {
+    const ids = unreviewedTransactions.map(t => t.id)
+    setSelectedIds(ids)
+  }, [unreviewedTransactions])
+
+  // Quick selection: Select low confidence (needs attention)
+  const selectLowConfidence = useCallback(() => {
+    const ids = lowConfidenceTransactions.map(t => t.id)
+    setSelectedIds(ids)
+    toast({
+      variant: 'info',
+      title: `Selected ${ids.length} low-confidence transactions`,
+      description: 'These need manual review.',
+    })
+  }, [lowConfidenceTransactions, toast])
+
+  // Keyboard navigation handler
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    // Ignore if user is typing in an input
+    const target = event.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') {
+      return
+    }
+
+    const visibleTransactions = transactions
+
+    switch (event.key) {
+      case 'j':
+        // Move down
+        event.preventDefault()
+        setFocusedIndex(prev => Math.min(prev + 1, visibleTransactions.length - 1))
+        break
+      case 'k':
+        // Move up
+        event.preventDefault()
+        setFocusedIndex(prev => Math.max(prev - 1, 0))
+        break
+      case ' ':
+        // Toggle selection
+        event.preventDefault()
+        if (focusedIndex >= 0 && focusedIndex < visibleTransactions.length) {
+          const id = visibleTransactions[focusedIndex].id
+          toggleSelect(id)
+        }
+        break
+      case 'a':
+        if (event.shiftKey) {
+          // Shift+A: Approve all selected with AI categories
+          event.preventDefault()
+          if (selectedIds.length > 0) {
+            handleBulkAction('approve_with_ai')
+          }
+        } else {
+          // A: Approve focused transaction with AI suggestion
+          event.preventDefault()
+          if (focusedIndex >= 0 && focusedIndex < visibleTransactions.length) {
+            const transaction = visibleTransactions[focusedIndex]
+            if (transaction.review_status !== 'approved') {
+              const categoryId = transaction.primary_category_id || transaction.category_id || transaction.ai_suggested_category
+              if (categoryId) {
+                handleApprove({ transactionId: transaction.id, categoryId })
+              }
+            }
+          }
+        }
+        break
+      case 'Escape':
+        // Clear selection and focus
+        setSelectedIds([])
+        setFocusedIndex(-1)
+        break
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, focusedIndex, selectedIds, handleApprove, handleBulkAction])
+
+  // Add keyboard listener
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
   const toggleSelectAll = () => {
     if (allSelected) {
@@ -139,6 +274,7 @@ export default function TransactionTable({
       | 'mark_reviewed'
       | 'set_category'
       | 'approve'
+      | 'approve_with_ai'
       | 'set_account'
       | 'mark_cleared'
       | 'mark_reconciled'
@@ -375,10 +511,18 @@ export default function TransactionTable({
               <Button
                 variant="primary"
                 size="sm"
+                onClick={() => handleBulkAction('approve_with_ai')}
+                disabled={bulkProcessing}
+              >
+                Approve with AI Category
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => handleBulkAction('approve')}
                 disabled={bulkProcessing}
               >
-                Approve
+                Approve (no category)
               </Button>
               <Button
                 variant="secondary"
@@ -444,17 +588,56 @@ export default function TransactionTable({
           </h2>
           <p className="text-xs" style={{ color: tokenVar('gray-500', colors.gray[500]) }}>
             Showing {transactions.length} · {filterSummary}
+            {unreviewedTransactions.length > 0 && (
+              <span> · {unreviewedTransactions.length} need review</span>
+            )}
           </p>
         </div>
-        <div
-          className="flex items-center text-xs"
-          style={{ gap: spacing[2], color: tokenVar('gray-500', colors.gray[500]) }}
-        >
-          <span>Account scope</span>
-          <Badge variant={accountId ? 'success' : 'neutral'}>
-            {accountId ? 'Filtered' : 'All accounts'}
-          </Badge>
+        <div className="flex flex-wrap items-center" style={{ gap: spacing[2] }}>
+          {highConfidenceTransactions.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={selectHighConfidence}
+            >
+              Select high-confidence ({highConfidenceTransactions.length})
+            </Button>
+          )}
+          {unreviewedTransactions.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={selectNeedsReview}
+            >
+              Select all unreviewed
+            </Button>
+          )}
+          <div
+            className="flex items-center text-xs"
+            style={{ gap: spacing[2], color: tokenVar('gray-500', colors.gray[500]) }}
+          >
+            <Badge variant={accountId ? 'success' : 'neutral'}>
+              {accountId ? 'Filtered' : 'All accounts'}
+            </Badge>
+          </div>
         </div>
+      </div>
+
+      {/* Keyboard shortcuts hint */}
+      <div
+        className="border-b text-xs"
+        style={{
+          borderColor: tokenVar('gray-200', colors.gray[200]),
+          backgroundColor: tokenVar('gray-100', colors.gray[100]),
+          padding: `${spacing[2]} ${spacing[5]}`,
+          color: tokenVar('gray-500', colors.gray[500]),
+        }}
+      >
+        <span className="font-medium">Keyboard:</span>{' '}
+        <kbd className="px-1 rounded bg-white border text-xs">j</kbd>/<kbd className="px-1 rounded bg-white border text-xs">k</kbd> navigate{' '}
+        <kbd className="px-1 rounded bg-white border text-xs">Space</kbd> select{' '}
+        <kbd className="px-1 rounded bg-white border text-xs">a</kbd> approve{' '}
+        <kbd className="px-1 rounded bg-white border text-xs">Shift+A</kbd> bulk approve
       </div>
 
       <div className="overflow-x-auto">
@@ -476,12 +659,13 @@ export default function TransactionTable({
               <TableHead className="text-right">Received</TableHead>
               <TableHead>From/To</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead className="text-center">AI</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {transactions.map((transaction) => {
+            {transactions.map((transaction, rowIndex) => {
               const isReviewed = transaction.review_status === 'approved'
               const amount = transaction.amount ?? 0
               const isPositive = amount >= 0
@@ -520,16 +704,24 @@ export default function TransactionTable({
               const isVoided = Boolean(transaction.voided_at)
               const isDeleted = Boolean(transaction.deleted_at)
               const hasRule = Boolean(transaction.applied_rule_id)
+              const confidence = transaction.confidence ?? transaction.ai_confidence ?? null
+              const confidenceBadge = getConfidenceBadge(confidence)
+              const isFocused = rowIndex === focusedIndex
               return (
                 <TableRow
                   key={transaction.id}
                   className="focus-within:bg-[var(--ds-row-focus)]"
                   style={{
-                    backgroundColor: !isReviewed
-                      ? tokenVar('warning-soft', colors.gray[100])
-                      : undefined,
+                    backgroundColor: isFocused
+                      ? tokenVar('primary-soft', colors.gray[200])
+                      : !isReviewed
+                        ? tokenVar('warning-soft', colors.gray[100])
+                        : undefined,
                     ['--ds-row-focus' as string]: tokenVar('gray-100', colors.gray[100]),
+                    outline: isFocused ? `2px solid ${tokenVar('primary', colors.gray[400])}` : undefined,
+                    outlineOffset: '-2px',
                   }}
+                  onClick={() => setFocusedIndex(rowIndex)}
                 >
                   <TableCell className="align-top">
                     <input
@@ -658,14 +850,17 @@ export default function TransactionTable({
                             Needs categorization
                           </button>
                         )}
-                        {transaction.ai_confidence && (
-                          <div className="mt-2">
-                            <Badge variant="info">
-                              AI {Math.round(transaction.ai_confidence * 100)}% confidence
-                            </Badge>
-                          </div>
-                        )}
                       </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-center">
+                    {!isReviewed && confidence !== null && (
+                      <Badge variant={confidenceBadge.variant}>
+                        {confidenceBadge.label}
+                      </Badge>
+                    )}
+                    {isReviewed && hasRule && (
+                      <Badge variant="success">Rule</Badge>
                     )}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-center">
@@ -685,7 +880,6 @@ export default function TransactionTable({
                       {!isVoided && !isDeleted && reconciliationStatus === 'reconciled' && (
                         <Badge variant="neutral">Reconciled</Badge>
                       )}
-                      {hasRule && <Badge variant="neutral">Rule</Badge>}
                     </div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right font-medium">

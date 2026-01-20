@@ -96,9 +96,12 @@ export default function CSVUploader({
   const [statusMap, setStatusMap] = useState<Record<string, StatusMappingValue | ''>>({})
   const [skipInvalidRows, setSkipInvalidRows] = useState(false)
   const [importProfile, setImportProfile] = useState<ImportProfile | null>(null)
+  const [fastPathActive, setFastPathActive] = useState(true) // Start with fast path enabled
+  const [showMappingCustomize, setShowMappingCustomize] = useState(false)
   const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
   const confidenceThreshold = 0.75
+  const fastPathThreshold = 0.80
 
   useEffect(() => {
     setAccountId(selectedAccountId ?? '')
@@ -446,6 +449,48 @@ export default function CSVUploader({
     () => validateMapping({ mapping, amountStrategy }),
     [mapping, amountStrategy]
   )
+
+  // Fast path eligibility check
+  const canUseFastPath = useMemo(() => {
+    const accountConfidence = accountSuggestion?.confidence ?? 0;
+    const hasHighConfidenceAccount = accountConfidence >= fastPathThreshold && accountId;
+    const hasMappingComplete = mappingValidation.isValid;
+    const hasTransactions = previewResult.transactions.length > 0;
+    const hasNoErrors = previewResult.errors.length === 0;
+
+    return (
+      fastPathActive &&
+      hasHighConfidenceAccount &&
+      hasMappingComplete &&
+      hasTransactions &&
+      hasNoErrors &&
+      !showMappingCustomize
+    );
+  }, [
+    accountSuggestion?.confidence,
+    accountId,
+    mappingValidation.isValid,
+    previewResult.transactions.length,
+    previewResult.errors.length,
+    fastPathActive,
+    showMappingCustomize,
+  ]);
+
+  // Fast path summary info
+  const fastPathSummary = useMemo(() => {
+    if (!canUseFastPath || !accountSuggestion) return null;
+
+    const accountName = accounts.find(a => a.id === accountId)?.name || 'Unknown';
+    const last4 = accountSuggestion.detected?.accountNumberLast4 || '';
+
+    return {
+      accountName,
+      accountLast4: last4,
+      institution: detectedInstitution,
+      transactionCount: previewResult.transactions.length,
+      confidence: Math.round((accountSuggestion.confidence || 0) * 100),
+    };
+  }, [canUseFastPath, accountSuggestion, accountId, accounts, detectedInstitution, previewResult.transactions.length]);
 
   useEffect(() => {
     let cancelled = false
@@ -902,31 +947,154 @@ export default function CSVUploader({
         />
       )}
 
-      {currentImport && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Fast Path Mode - Quick Import */}
+      {canUseFastPath && fastPathSummary && !currentImport && (
+        <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-6">
+          <div className="flex items-start justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">Import progress</h3>
-              <p className="text-xs text-slate-500">
-                Status: <span className="font-semibold text-slate-700">{currentImport.status}</span>
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white">
+                  <IconFileUp className="h-4 w-4" />
+                </div>
+                <h3 className="text-lg font-semibold text-emerald-900">Ready to Import</h3>
+              </div>
+              <p className="mt-2 text-sm text-emerald-700">
+                Auto-detected <span className="font-semibold">{fastPathSummary.institution || 'bank'}</span> format
+                {fastPathSummary.accountLast4 && ` (account ending in ${fastPathSummary.accountLast4})`}
               </p>
-              {currentImport.file_name && (
-                <p className="text-xs text-slate-400">File: {currentImport.file_name}</p>
+              <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-600">Account:</span>
+                  <span className="font-semibold text-emerald-900">{fastPathSummary.accountName}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-600">Transactions:</span>
+                  <span className="font-semibold text-emerald-900">{fastPathSummary.transactionCount}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-600">Confidence:</span>
+                  <span className="font-semibold text-emerald-900">{fastPathSummary.confidence}%</span>
+                </div>
+              </div>
+            </div>
+            <Button
+              onClick={handleUpload}
+              disabled={uploading || previewLoading}
+              variant="primary"
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {uploading ? 'Importing...' : 'Import Now'}
+            </Button>
+          </div>
+
+          {/* Quick preview of first few transactions */}
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 mb-2">Preview</p>
+            <div className="space-y-1">
+              {previewResult.transactions.slice(0, 3).map((txn, idx) => (
+                <div key={idx} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-500">{txn.date}</span>
+                    <span className="text-slate-900 font-medium">{txn.payee}</span>
+                  </div>
+                  <span className={txn.amount >= 0 ? 'text-emerald-600 font-semibold' : 'text-rose-600 font-semibold'}>
+                    {txn.amount >= 0 ? '+' : ''}${Math.abs(txn.amount).toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              {previewResult.transactions.length > 3 && (
+                <p className="text-xs text-slate-500 mt-1">
+                  +{previewResult.transactions.length - 3} more transactions
+                </p>
               )}
             </div>
-            {['queued', 'running'].includes(currentImport.status) && (
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-t border-emerald-200 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowMappingCustomize(true)}
+              className="text-xs font-medium text-emerald-700 hover:text-emerald-900"
+            >
+              Customize mapping
+            </button>
+            <button
+              type="button"
+              onClick={() => setFastPathActive(false)}
+              className="text-xs text-slate-500 hover:text-slate-700"
+            >
+              Use standard import
+            </button>
+          </div>
+        </div>
+      )}
+
+      {currentImport && (
+        <div className={`rounded-2xl border-2 p-6 transition-all ${
+          currentImport.status === 'succeeded'
+            ? 'border-emerald-300 bg-emerald-50'
+            : currentImport.status === 'failed'
+              ? 'border-rose-300 bg-rose-50'
+              : 'border-slate-200 bg-slate-50'
+        }`}>
+          {/* Success celebration header */}
+          {currentImport.status === 'succeeded' && (
+            <div className="mb-6 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white mb-4">
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-bold text-emerald-900">Import Complete!</h2>
+              <p className="mt-2 text-emerald-700">
+                {currentImport.inserted_rows ?? 0} transactions imported successfully
+              </p>
+            </div>
+          )}
+
+          {/* Running/Queued state header */}
+          {importIsActive && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Importing Transactions...</h3>
+                <p className="text-xs text-slate-500">
+                  {progressPercent !== null
+                    ? `Categorizing ${processedRows} of ${totalRows} transactions...`
+                    : 'Preparing import...'}
+                </p>
+                {currentImport.file_name && (
+                  <p className="text-xs text-slate-400">File: {currentImport.file_name}</p>
+                )}
+              </div>
               <Button onClick={handleCancelImport} variant="secondary">
                 Cancel import
               </Button>
-            )}
-          </div>
+            </div>
+          )}
 
+          {/* Failed state header */}
+          {currentImport.status === 'failed' && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-rose-900">Import Failed</h3>
+                <p className="text-xs text-rose-600">
+                  Some transactions could not be imported.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Progress bar with animation */}
           <div className="mt-4">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 relative">
               <div
-                className={`h-2 rounded-full bg-emerald-500 ${
-                  importIsActive && progressPercent === null ? 'animate-pulse' : ''
-                }`}
+                className={`h-3 rounded-full transition-all duration-500 ease-out ${
+                  currentImport.status === 'succeeded'
+                    ? 'bg-emerald-500'
+                    : currentImport.status === 'failed'
+                      ? 'bg-rose-500'
+                      : 'bg-emerald-500'
+                } ${importIsActive ? 'animate-pulse' : ''}`}
                 style={{
                   width:
                     progressPercent !== null
@@ -936,44 +1104,75 @@ export default function CSVUploader({
                         : '100%',
                 }}
               />
+              {/* Shimmer effect for active imports */}
+              {importIsActive && (
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+              )}
             </div>
-            <p className="mt-2 text-xs text-slate-500">
-              {importIsActive && progressPercent !== null
-                ? `Processing ${processedRows} of ${totalRows} rows (${progressPercent}%)`
-                : importIsActive
-                  ? 'Importing transactions. This may take a moment.'
-                  : 'Import complete.'}
-            </p>
+            {importIsActive && progressPercent !== null && (
+              <p className="mt-2 text-center text-sm font-medium text-slate-700">
+                {progressPercent}% complete
+              </p>
+            )}
           </div>
 
+          {/* Stats grid */}
           <div className="mt-4 grid gap-3 sm:grid-cols-4">
-            <div>
+            <div className={`rounded-lg p-3 ${currentImport.status === 'succeeded' ? 'bg-white/60' : 'bg-white/40'}`}>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Processed</p>
-              <p className="text-lg font-semibold text-slate-900">
+              <p className="text-2xl font-bold text-slate-900">
                 {currentImport.processed_rows ?? 0}
               </p>
             </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Inserted</p>
-              <p className="text-lg font-semibold text-emerald-600">
+            <div className={`rounded-lg p-3 ${currentImport.status === 'succeeded' ? 'bg-emerald-100' : 'bg-white/40'}`}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Inserted</p>
+              <p className="text-2xl font-bold text-emerald-600">
                 {currentImport.inserted_rows ?? 0}
               </p>
             </div>
-            <div>
+            <div className={`rounded-lg p-3 ${currentImport.status === 'succeeded' ? 'bg-white/60' : 'bg-white/40'}`}>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Skipped</p>
-              <p className="text-lg font-semibold text-slate-900">
+              <p className="text-2xl font-bold text-slate-600">
                 {currentImport.skipped_rows ?? 0}
               </p>
             </div>
-            <div>
+            <div className={`rounded-lg p-3 ${(currentImport.error_rows ?? 0) > 0 ? 'bg-rose-100' : 'bg-white/40'}`}>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Errors</p>
-              <p className="text-lg font-semibold text-rose-600">
+              <p className={`text-2xl font-bold ${(currentImport.error_rows ?? 0) > 0 ? 'text-rose-600' : 'text-slate-600'}`}>
                 {currentImport.error_rows ?? 0}
               </p>
             </div>
           </div>
+
+          {/* Success action buttons */}
+          {currentImport.status === 'succeeded' && (
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <a
+                href={reviewHref}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+              >
+                <IconFileUp className="h-4 w-4" />
+                Review {currentImport.inserted_rows ?? 0} Transactions
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setFiles([])
+                  setParsedRows([])
+                  setCurrentImport(null)
+                  setSuccessMessage(null)
+                  setFastPathActive(true)
+                  setShowMappingCustomize(false)
+                }}
+                className="text-sm font-medium text-emerald-700 hover:text-emerald-900"
+              >
+                Import Another File
+              </button>
+            </div>
+          )}
+
           {currentImport.last_error && currentImport.status === 'failed' && (
-            <p className="mt-4 text-sm text-rose-600">{currentImport.last_error}</p>
+            <p className="mt-4 text-sm text-rose-600 bg-rose-100 rounded-lg p-3">{currentImport.last_error}</p>
           )}
 
           {showImportIssues && (
@@ -1011,7 +1210,7 @@ export default function CSVUploader({
         </div>
       )}
 
-      {parsedRows.length > 0 && (
+      {parsedRows.length > 0 && !canUseFastPath && (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1246,7 +1445,7 @@ export default function CSVUploader({
         </div>
       )}
 
-      {parsedRows.length > 0 && (
+      {parsedRows.length > 0 && !canUseFastPath && (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

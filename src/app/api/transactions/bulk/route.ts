@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { recordReviewAction } from '@/lib/review-actions';
 import { validateTransactionStatusPayload } from '@/lib/transaction-status';
+import { createRuleFromApproval } from '@/lib/categorization-engine';
 
 const ACTIONS = [
   'mark_reviewed',
   'set_category',
   'approve',
+  'approve_with_ai', // New: approve using AI-suggested category
   'set_account',
   'mark_cleared',
   'mark_reconciled',
@@ -72,6 +74,93 @@ export async function POST(request: Request) {
       updatePayload.review_status = 'approved';
       updatePayload.approved_at = now;
       updatePayload.approved_by = approvedBy ?? 'bulk';
+    }
+
+    // Atomic approve with AI-suggested categories
+    if (action === 'approve_with_ai') {
+      // Fetch transactions with their AI suggestions
+      const { data: transactionsToApprove, error: fetchTxnError } = await supabaseAdmin
+        .from('transactions')
+        .select('id, payee, description, ai_suggested_category, primary_category_id, category_id, confidence, ai_confidence')
+        .in('id', ids);
+
+      if (fetchTxnError) {
+        console.error('[API] Failed to fetch transactions for approve_with_ai', fetchTxnError);
+        return NextResponse.json(
+          { ok: false, error: 'Failed to fetch transactions.', details: fetchTxnError.message },
+          { status: 500 }
+        );
+      }
+
+      // Update each transaction with its AI-suggested category
+      const updatePromises = (transactionsToApprove || []).map(async (txn) => {
+        const suggestedCategoryId = txn.ai_suggested_category || txn.primary_category_id || txn.category_id;
+
+        const txnUpdatePayload: Record<string, unknown> = {
+          reviewed: true,
+          reviewed_at: now,
+          review_status: 'approved',
+          approved_at: now,
+          approved_by: approvedBy ?? 'bulk_ai',
+          updated_at: now,
+        };
+
+        if (suggestedCategoryId) {
+          txnUpdatePayload.category_id = suggestedCategoryId;
+          txnUpdatePayload.primary_category_id = suggestedCategoryId;
+        }
+
+        const { error: updateTxnError } = await supabaseAdmin
+          .from('transactions')
+          .update(txnUpdatePayload)
+          .eq('id', txn.id);
+
+        if (updateTxnError) {
+          console.warn('[API] Failed to update transaction', txn.id, updateTxnError);
+          return { id: txn.id, success: false };
+        }
+
+        // Create rule from this approval if there's a category
+        if (suggestedCategoryId && txn.payee) {
+          try {
+            await createRuleFromApproval(txn.payee, txn.description, suggestedCategoryId);
+          } catch (ruleError) {
+            console.warn('[API] Rule creation failed (non-fatal):', ruleError);
+          }
+        }
+
+        return { id: txn.id, success: true };
+      });
+
+      const results = await Promise.all(updatePromises);
+      const successIds = results.filter(r => r.success).map(r => r.id);
+
+      console.info('[API] Bulk approve_with_ai complete', {
+        requested: ids.length,
+        succeeded: successIds.length,
+      });
+
+      // Record review actions
+      await Promise.all(
+        (transactionsToApprove || []).map((txn) => {
+          const suggestedCategoryId = txn.ai_suggested_category || txn.primary_category_id || txn.category_id;
+          return recordReviewAction({
+            transactionId: txn.id,
+            action: 'approve',
+            actor: approvedBy ?? 'bulk_ai',
+            before: {
+              review_status: 'needs_review',
+              category_id: txn.primary_category_id ?? txn.category_id,
+            },
+            after: {
+              review_status: 'approved',
+              category_id: suggestedCategoryId,
+            },
+          });
+        })
+      );
+
+      return NextResponse.json({ ok: true, data: { ids: successIds } });
     }
 
     if (action === 'set_account') {
