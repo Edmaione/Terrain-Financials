@@ -1,5 +1,32 @@
 # Landscape Finance - Claude Code Context
 
+> **SESSION STARTUP**: Read `.claude/PROJECT_STATE.md` and `.claude/KNOWN_ISSUES.md` before starting work.
+
+## Session Protocol
+
+### On Session Start
+1. Read `.claude/PROJECT_STATE.md` for current feature status and recent changes
+2. Read `.claude/KNOWN_ISSUES.md` for known bugs and technical debt
+3. Check `git status` and `git log --oneline -5` for recent work
+
+### During Session
+- Use TodoWrite to track tasks as you work
+- Update `.claude/PROJECT_STATE.md` when completing features or making significant changes
+- Update `.claude/KNOWN_ISSUES.md` when finding or fixing issues
+
+### On Session End (or when asked to wrap up)
+1. Update `.claude/PROJECT_STATE.md`:
+   - Mark completed features as done
+   - Add any new in-progress work
+   - Update "Recent Changes" section with what was done
+   - Update "Git State" with latest commits
+2. Update `.claude/KNOWN_ISSUES.md`:
+   - Mark fixed issues as [x]
+   - Add any new issues discovered
+3. Commit context file updates if other changes were committed
+
+---
+
 Custom financial management system for Maione Landscapes LLC (S-corp). Replaces QuickBooks with unlimited flexibility at ~$15/month.
 
 ## Tech Stack
