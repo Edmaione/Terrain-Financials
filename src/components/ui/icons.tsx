@@ -244,3 +244,11 @@ export function IconCheckCircle(props: IconProps) {
     </svg>
   )
 }
+
+export function IconChevronDown(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" {...baseProps} {...props}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  )
+}

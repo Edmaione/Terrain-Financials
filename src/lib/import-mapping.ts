@@ -20,7 +20,7 @@ const FIELD_CANDIDATES: Record<keyof ImportFieldMapping, string[]> = {
   description: ['description', 'details', 'transaction_description'],
   memo: ['memo', 'notes', 'note'],
   reference: ['reference', 'ref', 'reference_number', 'check_number', 'check_or_slip', 'check_no'],
-  category: ['category', 'category_name', 'type', 'category_type'],
+  category: ['category', 'category_name', 'category_type'],
   bank_status: ['status', 'state', 'bank_status', 'posting_status'],
 }
 

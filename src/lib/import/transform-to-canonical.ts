@@ -139,6 +139,7 @@ export async function transformImportRows({
   importId,
   statusMap,
   dateFormat,
+  flipSigns = false,
 }: {
   rows: CSVRow[]
   mapping: ImportFieldMapping
@@ -148,6 +149,7 @@ export async function transformImportRows({
   importId?: string | null
   statusMap?: Record<string, StatusMappingValue> | null
   dateFormat?: DateFormatHint | null
+  flipSigns?: boolean
 }): Promise<{
   transactions: CanonicalImportRow[]
   errors: TransformError[]
@@ -193,6 +195,10 @@ export async function transformImportRows({
         const inflow = inflowRaw ? parseAmount(inflowRaw) : 0
         const outflow = outflowRaw ? parseAmount(outflowRaw) : 0
         amount = inflow - outflow
+      }
+      // Flip signs for credit card statements (where purchases are positive)
+      if (flipSigns) {
+        amount = -amount
       }
     } catch (error) {
       errors.push({

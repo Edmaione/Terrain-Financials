@@ -13,6 +13,11 @@ const styles: Record<string, { wrapper: string; icon: string; iconEl: React.Elem
     icon: 'text-emerald-600',
     iconEl: IconCheckCircle,
   },
+  warning: {
+    wrapper: 'border-amber-200 bg-amber-50 text-amber-900',
+    icon: 'text-amber-600',
+    iconEl: IconAlertTriangle,
+  },
   info: {
     wrapper: 'border-slate-200 bg-white text-slate-900',
     icon: 'text-slate-600',
@@ -26,7 +31,7 @@ export default function AlertBanner({
   message,
   actions,
 }: {
-  variant?: 'error' | 'success' | 'info'
+  variant?: 'error' | 'success' | 'warning' | 'info'
   title?: string
   message: string
   actions?: ReactNode

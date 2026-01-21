@@ -39,7 +39,7 @@ export default function CSVUploader({
   accounts,
   selectedAccountId,
 }: {
-  accounts: Array<{ id: string; name: string; institution?: string | null }>
+  accounts: Array<{ id: string; name: string; type?: string; institution?: string | null }>
   selectedAccountId: string | null
 }) {
   const router = useRouter()
@@ -84,6 +84,14 @@ export default function CSVUploader({
       row_number: number | null
       severity: 'error' | 'warning'
       message: string
+      raw_row?: {
+        raw?: Record<string, string> | null
+        normalized?: {
+          payee?: string
+          amount?: number
+          date?: string
+        } | null
+      } | null
     }>
   >([])
   const [importIssuesCount, setImportIssuesCount] = useState(0)
@@ -99,6 +107,7 @@ export default function CSVUploader({
   const [skipInvalidRows, setSkipInvalidRows] = useState(false)
   const [importProfile, setImportProfile] = useState<ImportProfile | null>(null)
   const [fastPathActive, setFastPathActive] = useState(true) // Start with fast path enabled
+  const [flipSigns, setFlipSigns] = useState(false) // For credit card statements
   const [showMappingCustomize, setShowMappingCustomize] = useState(false)
   // AI Category suggestion state
   const [categories, setCategories] = useState<Category[]>([])
@@ -129,6 +138,15 @@ export default function CSVUploader({
     () => accounts.find((account) => account.id === accountId) ?? null,
     [accounts, accountId]
   )
+
+  // Auto-detect credit card accounts and enable sign flipping
+  useEffect(() => {
+    if (selectedAccount?.type === 'credit_card') {
+      setFlipSigns(true)
+    } else {
+      setFlipSigns(false)
+    }
+  }, [selectedAccount])
 
   const handleAccountChange = (value: string) => {
     setAccountTouched(true)
@@ -218,7 +236,6 @@ export default function CSVUploader({
         headers = parsed.headers
         allRows.push(...parsed.rows)
       }
-
       if (debugIngest) {
         console.info('[ingest] Parsed transactions', {
           fileCount: filesToParse.length,
@@ -310,16 +327,26 @@ export default function CSVUploader({
   const fetchImportIssues = async (importId: string) => {
     try {
       const result = await apiRequest<{
-        issues: Array<{
-          id: string
-          row_number: number | null
-          severity: 'error' | 'warning'
-          message: string
-        }>
-        total: number
+        data: {
+          issues: Array<{
+            id: string
+            row_number: number | null
+            severity: 'error' | 'warning'
+            message: string
+            raw_row?: {
+              raw?: Record<string, string> | null
+              normalized?: {
+                payee?: string
+                amount?: number
+                date?: string
+              } | null
+            } | null
+          }>
+          total: number
+        }
       }>(`/api/imports/${importId}/issues?limit=5`)
-      setImportIssues(result.issues)
-      setImportIssuesCount(result.total)
+      setImportIssues(result.data.issues)
+      setImportIssuesCount(result.data.total)
       setImportIssuesError(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load import issues'
@@ -454,9 +481,10 @@ export default function CSVUploader({
     if (!currentImport?.id) return
     if (['succeeded', 'failed', 'canceled'].includes(currentImport.status)) return
 
+    // Poll every 500ms during active import for smoother progress
     const interval = window.setInterval(() => {
       void fetchImport(currentImport.id)
-    }, 2000)
+    }, 500)
 
     return () => window.clearInterval(interval)
   }, [currentImport?.id, currentImport?.status])
@@ -555,6 +583,7 @@ export default function CSVUploader({
           sourceSystem: detectedInstitution?.toLowerCase() === 'relay' ? 'relay' : 'manual',
           statusMap: sanitizedStatusMap,
           dateFormat: detectedDateFormat,
+          flipSigns,
         })
         if (!cancelled) {
           setPreviewResult(result)
@@ -586,6 +615,7 @@ export default function CSVUploader({
     sanitizedStatusMap,
     detectedDateFormat,
     detectedInstitution,
+    flipSigns,
   ])
 
   // Fetch AI category suggestions after preview builds
@@ -647,7 +677,7 @@ export default function CSVUploader({
             }
           }
         } catch (err) {
-          console.warn('[ingest] Failed to fetch AI suggestions batch:', err)
+          console.error('[AI] Failed to fetch AI suggestions batch:', err)
         }
       }
 
@@ -1073,6 +1103,23 @@ export default function CSVUploader({
             <span>Select the bank account that matches this statement.</span>
           )}
         </div>
+        {/* Sign flip toggle for credit card statements */}
+        {selectedAccount && (
+          <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={flipSigns}
+              onChange={(event) => setFlipSigns(event.target.checked)}
+              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <span>
+              Flip transaction signs
+              {selectedAccount.type === 'credit_card' && (
+                <span className="ml-1 text-xs text-slate-500">(auto-detected for credit cards)</span>
+              )}
+            </span>
+          </label>
+        )}
       </div>
 
       {files.length > 0 && (
@@ -1376,13 +1423,39 @@ export default function CSVUploader({
                 <p className="text-xs text-rose-600">{importIssuesError}</p>
               )}
               {importIssues.length > 0 && (
-                <ul className="list-inside list-disc text-xs text-rose-700">
-                  {importIssues.map((issue) => (
-                    <li key={issue.id}>
-                      Row {issue.row_number ?? 'N/A'}: {issue.message}
-                    </li>
-                  ))}
-                </ul>
+                <div className="space-y-2">
+                  {importIssues.map((issue) => {
+                    const normalized = issue.raw_row?.normalized
+                    const hasDetails = normalized?.payee || normalized?.amount !== undefined || normalized?.date
+                    return (
+                      <div key={issue.id} className="rounded-lg bg-rose-100 px-3 py-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-rose-800">
+                              Row {issue.row_number ?? 'N/A'}
+                            </p>
+                            {hasDetails && (
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-rose-700">
+                                {normalized?.date && (
+                                  <span className="bg-rose-200/50 px-1.5 py-0.5 rounded">{normalized.date}</span>
+                                )}
+                                {normalized?.payee && (
+                                  <span className="font-medium truncate max-w-[200px]">{normalized.payee}</span>
+                                )}
+                                {normalized?.amount !== undefined && (
+                                  <span className={`font-semibold ${normalized.amount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                    {normalized.amount >= 0 ? '+' : ''}${Math.abs(normalized.amount).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            <p className="mt-1 text-xs text-rose-600">{issue.message}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
           )}

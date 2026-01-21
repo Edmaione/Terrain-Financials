@@ -55,7 +55,7 @@ export async function GET(
 
   let query = supabaseAdmin
     .from('import_row_issues')
-    .select('id, row_number, severity, message, created_at', { count: 'exact' })
+    .select('id, row_number, severity, message, raw_row, created_at', { count: 'exact' })
     .eq('import_id', id)
     .order('row_number', { ascending: true })
 

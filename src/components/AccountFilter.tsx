@@ -26,7 +26,7 @@ export default function AccountFilter({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <div className="sticky top-4 z-20 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-semibold text-slate-700">Accounts</div>
