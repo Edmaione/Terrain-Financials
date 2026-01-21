@@ -174,6 +174,28 @@ async function insertTransactions(items: PreparedTransaction[]) {
   const insertedRows = (data || []) as InsertedTransactionRow[]
   const skippedCount = insertPayload.length - insertedRows.length
 
+  // Track which rows were duplicates and create warning issues for them
+  if (skippedCount > 0) {
+    const insertedHashes = new Set(insertedRows.map((r) => r.import_row_hash))
+    for (const item of validItems) {
+      if (!insertedHashes.has(item.transaction.import_row_hash)) {
+        errors.push({
+          rowNumber: item.transaction.import_row_number ?? null,
+          severity: 'warning',
+          message: 'Duplicate transaction - already imported previously',
+          rawRow: {
+            raw: item.transaction.raw_csv_data ?? null,
+            normalized: {
+              date: item.transaction.date,
+              payee: item.transaction.payee,
+              amount: item.transaction.amount,
+            },
+          },
+        })
+      }
+    }
+  }
+
   const splitsByHash = new Map(
     validItems.map((item) => [item.transaction.import_row_hash, item.splits])
   )

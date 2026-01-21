@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { IconFileUp, IconUploadCloud } from '@/components/ui/icons'
 import { parseCSV } from '@/lib/csv-parser'
@@ -114,6 +114,7 @@ export default function CSVUploader({
   const [aiSuggestions, setAiSuggestions] = useState<Map<string, AISuggestion>>(new Map())
   const [aiLoadingState, setAiLoadingState] = useState<'idle' | 'loading' | 'complete'>('idle')
   const [categoryOverrides, setCategoryOverrides] = useState<Map<string, string>>(new Map())
+  const aiFetchId = useRef(0) // Track which fetch is current
   const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
   const confidenceThreshold = 0.75
@@ -219,6 +220,7 @@ export default function CSVUploader({
     setAiSuggestions(new Map())
     setAiLoadingState('idle')
     setCategoryOverrides(new Map())
+    aiFetchId.current++ // Invalidate any in-flight fetches
     const shouldAutoSelect = true
     if (searchParams.get('import_id')) {
       const params = new URLSearchParams(searchParams.toString())
@@ -327,26 +329,24 @@ export default function CSVUploader({
   const fetchImportIssues = async (importId: string) => {
     try {
       const result = await apiRequest<{
-        data: {
-          issues: Array<{
-            id: string
-            row_number: number | null
-            severity: 'error' | 'warning'
-            message: string
-            raw_row?: {
-              raw?: Record<string, string> | null
-              normalized?: {
-                payee?: string
-                amount?: number
-                date?: string
-              } | null
+        issues: Array<{
+          id: string
+          row_number: number | null
+          severity: 'error' | 'warning'
+          message: string
+          raw_row?: {
+            raw?: Record<string, string> | null
+            normalized?: {
+              payee?: string
+              amount?: number
+              date?: string
             } | null
-          }>
-          total: number
-        }
+          } | null
+        }>
+        total: number
       }>(`/api/imports/${importId}/issues?limit=5`)
-      setImportIssues(result.data.issues)
-      setImportIssuesCount(result.data.total)
+      setImportIssues(result.issues)
+      setImportIssuesCount(result.total)
       setImportIssuesError(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load import issues'
@@ -620,20 +620,25 @@ export default function CSVUploader({
 
   // Fetch AI category suggestions after preview builds
   useEffect(() => {
-    if (previewResult.transactions.length === 0 || aiLoadingState !== 'idle') return
+    if (previewResult.transactions.length === 0) return
     if (previewLoading) return
 
-    let cancelled = false
+    // Increment fetch ID and capture it for this fetch
+    const currentFetchId = ++aiFetchId.current
     const BATCH_SIZE = 20
 
     const fetchSuggestions = async () => {
+      // Reset state for new preview
+      setAiSuggestions(new Map())
       setAiLoadingState('loading')
 
       const transactions = previewResult.transactions
       const allSuggestions = new Map<string, AISuggestion>()
+      let failedBatches = 0
 
       for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
-        if (cancelled) break
+        // Check if this fetch is still current
+        if (aiFetchId.current !== currentFetchId) break
 
         const batch = transactions.slice(i, i + BATCH_SIZE)
         const payload = {
@@ -658,10 +663,11 @@ export default function CSVUploader({
             }>
           }>('/api/categorization/preview-batch', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           })
 
-          if (result.ok && result.suggestions) {
+          if (result.ok && result.suggestions && aiFetchId.current === currentFetchId) {
             for (const suggestion of result.suggestions) {
               allSuggestions.set(suggestion.rowHash, {
                 categoryId: suggestion.categoryId,
@@ -672,26 +678,29 @@ export default function CSVUploader({
               })
             }
             // Update suggestions progressively
-            if (!cancelled) {
-              setAiSuggestions(new Map(allSuggestions))
-            }
+            setAiSuggestions(new Map(allSuggestions))
           }
         } catch (err) {
           console.error('[AI] Failed to fetch AI suggestions batch:', err)
+          failedBatches++
         }
       }
 
-      if (!cancelled) {
+      // Only update final state if this fetch is still current
+      if (aiFetchId.current === currentFetchId) {
         setAiLoadingState('complete')
+        if (failedBatches > 0) {
+          toast({
+            variant: 'warning',
+            title: 'Some AI suggestions failed',
+            description: `${failedBatches} batch(es) failed to load. You can still import without AI suggestions.`,
+          })
+        }
       }
     }
 
     void fetchSuggestions()
-
-    return () => {
-      cancelled = true
-    }
-  }, [previewResult.transactions, aiLoadingState, previewLoading])
+  }, [previewResult.transactions, previewLoading, toast])
 
   useEffect(() => {
     if (!mapping.bank_status) {
@@ -1199,7 +1208,9 @@ export default function CSVUploader({
 
           {/* Quick preview of first few transactions */}
           <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 mb-2">Preview</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 mb-2">
+              Preview {aiSuggestions.size > 0 ? `(${aiSuggestions.size} categorized)` : aiLoadingState === 'loading' ? '(categorizing...)' : ''}
+            </p>
             <div className="space-y-2">
               {previewResult.transactions.slice(0, 3).map((txn, idx) => {
                 const suggestion = aiSuggestions.get(txn.import_row_hash)
@@ -1208,23 +1219,21 @@ export default function CSVUploader({
                   ? categories.find((c) => c.id === override)?.name
                   : suggestion?.categoryName
                 return (
-                  <div key={idx} className="flex items-center justify-between text-sm gap-2">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <span className="text-slate-500 whitespace-nowrap">{txn.date}</span>
-                      <span className="text-slate-900 font-medium truncate">{txn.payee}</span>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                  <div key={idx} className="flex items-center text-sm gap-3">
+                    <span className="text-slate-500 whitespace-nowrap flex-shrink-0 w-24">{txn.date}</span>
+                    <span className="text-slate-900 font-medium truncate flex-1 min-w-0">{txn.payee}</span>
+                    <div className="flex-shrink-0 w-32 text-right">
                       {aiLoadingState === 'loading' && !suggestion ? (
                         <span className="text-xs text-slate-400 animate-pulse">...</span>
                       ) : categoryName ? (
-                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded truncate max-w-[100px]">
+                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded truncate inline-block max-w-full">
                           {categoryName}
                         </span>
                       ) : null}
-                      <span className={txn.amount >= 0 ? 'text-emerald-600 font-semibold' : 'text-rose-600 font-semibold'}>
-                        {txn.amount >= 0 ? '+' : ''}${Math.abs(txn.amount).toFixed(2)}
-                      </span>
                     </div>
+                    <span className={`flex-shrink-0 w-20 text-right font-semibold ${txn.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {txn.amount >= 0 ? '+' : ''}${Math.abs(txn.amount).toFixed(2)}
+                    </span>
                   </div>
                 )
               })}
@@ -1274,6 +1283,11 @@ export default function CSVUploader({
               <h2 className="text-2xl font-bold text-emerald-900">Import Complete!</h2>
               <p className="mt-2 text-emerald-700">
                 {currentImport.inserted_rows ?? 0} transactions imported successfully
+                {(currentImport.skipped_rows ?? 0) > 0 && (
+                  <span className="text-slate-500">
+                    {' '}• {currentImport.skipped_rows} skipped (duplicates)
+                  </span>
+                )}
               </p>
             </div>
           )}
@@ -1357,8 +1371,8 @@ export default function CSVUploader({
               </p>
             </div>
             <div className={`rounded-lg p-3 ${currentImport.status === 'succeeded' ? 'bg-white/60' : 'bg-white/40'}`}>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Skipped</p>
-              <p className="text-2xl font-bold text-slate-600">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Duplicates</p>
+              <p className="text-2xl font-bold text-amber-600">
                 {currentImport.skipped_rows ?? 0}
               </p>
             </div>
