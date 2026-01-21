@@ -228,7 +228,15 @@ export async function prepareCsvTransactions({
   rowHashForTransaction,
   debug,
 }: {
-  transactions: Array<ParsedTransaction & { rowNumber?: number; import_row_hash?: string | null }>
+  transactions: Array<
+    ParsedTransaction & {
+      rowNumber?: number
+      import_row_hash?: string | null
+      // Pre-populated AI suggestions from preview categorization
+      ai_suggested_category?: string | null
+      ai_confidence?: number
+    }
+  >
   accountId: string
   accounts: AccountLookup[]
   importId: string
@@ -319,7 +327,11 @@ export async function prepareCsvTransactions({
       let suggestedCategoryId: string | null = null
       let confidence = 0
 
-      if (!mappedCategoryId && typeInfo.isPayroll && typeInfo.payrollType) {
+      // Check for pre-populated AI suggestion from preview categorization
+      if (!mappedCategoryId && transaction.ai_suggested_category) {
+        suggestedCategoryId = transaction.ai_suggested_category
+        confidence = transaction.ai_confidence ?? 0.85
+      } else if (!mappedCategoryId && typeInfo.isPayroll && typeInfo.payrollType) {
         const categoryName =
           typeInfo.payrollType === 'wages'
             ? 'LS Technician Wages'
@@ -364,7 +376,7 @@ export async function prepareCsvTransactions({
       if (!mappedCategoryId && !suggestedCategoryId) {
         const suggestion = await categorizeTransaction({
           payee: transaction.payee,
-          description,
+          description: description ?? undefined,
           amount: transaction.amount,
         })
 

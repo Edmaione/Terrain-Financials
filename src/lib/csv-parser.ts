@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { CSVRow, ParsedCSV } from '@/types';
+import { CSVRow, ParsedCSV, ParsedTransaction } from '@/types';
 
 /**
  * Parse CSV file and extract transactions
@@ -7,11 +7,9 @@ import { CSVRow, ParsedCSV } from '@/types';
  */
 export async function parseCSV(file: File): Promise<ParsedCSV> {
   return new Promise((resolve, reject) => {
-    Papa.parse(file, {
+    Papa.parse<CSVRow>(file, {
       header: true,
       skipEmptyLines: 'greedy',
-      delimiter: '',
-      newline: '',
       transformHeader: (header) => header.replace(/^\uFEFF/, '').trim(),
       beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
       complete: (results) => {
@@ -34,11 +32,9 @@ export async function parseCSV(file: File): Promise<ParsedCSV> {
  * Parse CSV text (Node/test harness friendly)
  */
 export function parseCSVText(csvText: string): ParsedCSV {
-  const results = Papa.parse(csvText, {
+  const results = Papa.parse<CSVRow>(csvText, {
     header: true,
     skipEmptyLines: 'greedy',
-    delimiter: '',
-    newline: '',
     transformHeader: (header) => header.replace(/^\uFEFF/, '').trim(),
     beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
   });

@@ -320,7 +320,7 @@ async function incrementRuleCorrect(ruleId: string): Promise<void> {
 /**
  * Increment wrong count and decrease confidence
  */
-async function incrementRuleWrong(ruleId: string): Promise<void> {
+export async function incrementRuleWrong(ruleId: string): Promise<void> {
   const { data, error } = await supabaseAdmin
     .from('categorization_rules')
     .select('times_wrong, times_correct, confidence, is_active')

@@ -32,6 +32,8 @@ import AlertBanner from '@/components/AlertBanner'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { useToast } from '@/components/ui/Toast'
+import ImportPreviewCategoryCell, { type AISuggestion } from '@/components/ImportPreviewCategoryCell'
+import type { Category } from '@/types'
 
 export default function CSVUploader({
   accounts,
@@ -98,6 +100,11 @@ export default function CSVUploader({
   const [importProfile, setImportProfile] = useState<ImportProfile | null>(null)
   const [fastPathActive, setFastPathActive] = useState(true) // Start with fast path enabled
   const [showMappingCustomize, setShowMappingCustomize] = useState(false)
+  // AI Category suggestion state
+  const [categories, setCategories] = useState<Category[]>([])
+  const [aiSuggestions, setAiSuggestions] = useState<Map<string, AISuggestion>>(new Map())
+  const [aiLoadingState, setAiLoadingState] = useState<'idle' | 'loading' | 'complete'>('idle')
+  const [categoryOverrides, setCategoryOverrides] = useState<Map<string, string>>(new Map())
   const { toast } = useToast()
   const debugIngest = process.env.NEXT_PUBLIC_INGEST_DEBUG === 'true'
   const confidenceThreshold = 0.75
@@ -106,6 +113,17 @@ export default function CSVUploader({
   useEffect(() => {
     setAccountId(selectedAccountId ?? '')
   }, [selectedAccountId])
+
+  // Load categories on mount
+  useEffect(() => {
+    apiRequest<{ data: Category[] }>('/api/categories')
+      .then((result) => {
+        setCategories(result.data || [])
+      })
+      .catch((err) => {
+        console.warn('[ingest] Failed to load categories:', err)
+      })
+  }, [])
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === accountId) ?? null,
@@ -179,6 +197,10 @@ export default function CSVUploader({
     setStatusMap({})
     setSkipInvalidRows(false)
     setImportProfile(null)
+    // Reset AI suggestion state
+    setAiSuggestions(new Map())
+    setAiLoadingState('idle')
+    setCategoryOverrides(new Map())
     const shouldAutoSelect = true
     if (searchParams.get('import_id')) {
       const params = new URLSearchParams(searchParams.toString())
@@ -410,7 +432,7 @@ export default function CSVUploader({
               setAmountStrategy(strategy)
             }
             const profileStatusMap =
-              (result.profile.status_map as Record<string, string> | null) ?? {}
+              (result.profile.status_map as Record<string, StatusMappingValue | ''> | null) ?? {}
             setStatusMap(profileStatusMap)
           }
         }
@@ -481,7 +503,7 @@ export default function CSVUploader({
     if (!canUseFastPath || !accountSuggestion) return null;
 
     const accountName = accounts.find(a => a.id === accountId)?.name || 'Unknown';
-    const last4 = accountSuggestion.detected?.accountNumberLast4 || '';
+    const last4 = accountSuggestion.detected?.accountLast4 || '';
 
     return {
       accountName,
@@ -491,6 +513,27 @@ export default function CSVUploader({
       confidence: Math.round((accountSuggestion.confidence || 0) * 100),
     };
   }, [canUseFastPath, accountSuggestion, accountId, accounts, detectedInstitution, previewResult.transactions.length]);
+
+  const detectedDateFormat = useMemo(() => {
+    const detected = detectDateFormatFromRows(parsedRows, mapping.date)
+    if (detected) return detected
+    const profileFormat = importProfile?.transforms?.dateFormat
+    if (profileFormat && ['ymd', 'mdy', 'dmy'].includes(String(profileFormat))) {
+      return profileFormat as DateFormatHint
+    }
+    return null
+  }, [parsedRows, mapping.date, importProfile])
+
+  const sanitizedStatusMap = useMemo(() => {
+    const cleaned: Record<string, StatusMappingValue> = {}
+    for (const [key, value] of Object.entries(statusMap)) {
+      const strValue = value as string
+      if (strValue && strValue !== '') {
+        cleaned[key] = strValue as StatusMappingValue
+      }
+    }
+    return cleaned
+  }, [statusMap])
 
   useEffect(() => {
     let cancelled = false
@@ -544,6 +587,81 @@ export default function CSVUploader({
     detectedDateFormat,
     detectedInstitution,
   ])
+
+  // Fetch AI category suggestions after preview builds
+  useEffect(() => {
+    if (previewResult.transactions.length === 0 || aiLoadingState !== 'idle') return
+    if (previewLoading) return
+
+    let cancelled = false
+    const BATCH_SIZE = 20
+
+    const fetchSuggestions = async () => {
+      setAiLoadingState('loading')
+
+      const transactions = previewResult.transactions
+      const allSuggestions = new Map<string, AISuggestion>()
+
+      for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+        if (cancelled) break
+
+        const batch = transactions.slice(i, i + BATCH_SIZE)
+        const payload = {
+          transactions: batch.map((txn) => ({
+            rowHash: txn.import_row_hash,
+            payee: txn.payee,
+            description: txn.description,
+            amount: txn.amount,
+          })),
+        }
+
+        try {
+          const result = await apiRequest<{
+            ok: boolean
+            suggestions: Array<{
+              rowHash: string
+              categoryId: string | null
+              categoryName: string | null
+              confidence: number
+              source: 'rule' | 'ai' | 'pattern'
+              ruleId?: string
+            }>
+          }>('/api/categorization/preview-batch', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          })
+
+          if (result.ok && result.suggestions) {
+            for (const suggestion of result.suggestions) {
+              allSuggestions.set(suggestion.rowHash, {
+                categoryId: suggestion.categoryId,
+                categoryName: suggestion.categoryName,
+                confidence: suggestion.confidence,
+                source: suggestion.source,
+                ruleId: suggestion.ruleId,
+              })
+            }
+            // Update suggestions progressively
+            if (!cancelled) {
+              setAiSuggestions(new Map(allSuggestions))
+            }
+          }
+        } catch (err) {
+          console.warn('[ingest] Failed to fetch AI suggestions batch:', err)
+        }
+      }
+
+      if (!cancelled) {
+        setAiLoadingState('complete')
+      }
+    }
+
+    void fetchSuggestions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [previewResult.transactions, aiLoadingState, previewLoading])
 
   useEffect(() => {
     if (!mapping.bank_status) {
@@ -624,26 +742,6 @@ export default function CSVUploader({
     return statusValues.filter((status) => !statusMap[status.key])
   }, [mapping.bank_status, statusMap, statusValues])
 
-  const detectedDateFormat = useMemo(() => {
-    const detected = detectDateFormatFromRows(parsedRows, mapping.date)
-    if (detected) return detected
-    const profileFormat = importProfile?.transforms?.dateFormat
-    if (profileFormat && ['ymd', 'mdy', 'dmy'].includes(String(profileFormat))) {
-      return profileFormat as DateFormatHint
-    }
-    return null
-  }, [parsedRows, mapping.date, importProfile])
-
-  const sanitizedStatusMap = useMemo(() => {
-    const cleaned: Record<string, StatusMappingValue> = {}
-    for (const [key, value] of Object.entries(statusMap)) {
-      if (value && value !== '') {
-        cleaned[key] = value as StatusMappingValue
-      }
-    }
-    return cleaned
-  }, [statusMap])
-
   const updateMappingField = (field: keyof ImportFieldMapping, value: string) => {
     setMapping((prev) => ({
       ...prev,
@@ -652,11 +750,45 @@ export default function CSVUploader({
     setMappingDirty(true)
   }
 
-  const updateStatusMapping = (key: string, value: string) => {
+  const updateStatusMapping = (key: string, value: StatusMappingValue | '') => {
     setStatusMap((prev) => ({
       ...prev,
       [key]: value,
     }))
+  }
+
+  // Handle category override with learning
+  const handleCategoryOverride = async (
+    rowHash: string,
+    newCategoryId: string,
+    previousSuggestion?: AISuggestion | null
+  ) => {
+    // 1. Update local state immediately
+    setCategoryOverrides((prev) => new Map(prev).set(rowHash, newCategoryId))
+
+    // 2. Find the transaction for this row to get payee/description
+    const transaction = previewResult.transactions.find(
+      (txn) => txn.import_row_hash === rowHash
+    )
+    if (!transaction) return
+
+    // 3. Call learn API to create rule (fire and forget)
+    apiRequest('/api/categorization/learn', {
+      method: 'POST',
+      body: JSON.stringify({
+        payee: transaction.payee,
+        description: transaction.description,
+        categoryId: newCategoryId,
+        previousSuggestion: previousSuggestion
+          ? {
+              categoryId: previousSuggestion.categoryId,
+              ruleId: previousSuggestion.ruleId,
+            }
+          : undefined,
+      }),
+    }).catch((err) => {
+      console.warn('[ingest] Failed to learn from category override:', err)
+    })
   }
 
   const handleUpload = async () => {
@@ -726,13 +858,44 @@ export default function CSVUploader({
         mappingTemplateId = null
       }
 
+      // Merge AI suggestions and overrides into canonical rows
+      const enrichedTransactions = previewResult.transactions.map((txn) => {
+        const rowHash = txn.import_row_hash
+        const override = categoryOverrides.get(rowHash)
+        const suggestion = aiSuggestions.get(rowHash)
+
+        // Priority: override > existing category > AI suggestion
+        if (override) {
+          return {
+            ...txn,
+            ai_suggested_category: override,
+            ai_confidence: 1.0, // User override = 100% confidence
+          }
+        }
+        if (txn.category) {
+          // Keep existing mapped category
+          return txn
+        }
+        if (suggestion?.categoryId) {
+          return {
+            ...txn,
+            ai_suggested_category: suggestion.categoryId,
+            ai_suggested_category_name: suggestion.categoryName,
+            ai_confidence: suggestion.confidence,
+            ai_source: suggestion.source,
+            ai_rule_id: suggestion.ruleId,
+          }
+        }
+        return txn
+      })
+
       const formData = new FormData()
       formData.append('file', file)
       formData.append('accountId', accountId)
       formData.append('mapping', JSON.stringify(buildMappingPayload(mapping)))
       formData.append('amountStrategy', amountStrategy)
       formData.append('headerFingerprint', headerFingerprint)
-      formData.append('canonicalRows', JSON.stringify(previewResult.transactions))
+      formData.append('canonicalRows', JSON.stringify(enrichedTransactions))
       formData.append('totalRows', String(parsedRows.length))
       formData.append('errorRows', String(previewResult.errors.length))
       formData.append('headerSignature', headerSignature)
@@ -830,7 +993,7 @@ export default function CSVUploader({
     : null
   const failedRows = currentImport?.error_rows ?? 0
   const showImportIssues =
-    Boolean(currentImport) &&
+    currentImport !== null &&
     (importIssuesCount > 0 || Boolean(importIssuesError) || currentImport.status === 'failed')
 
   return (
@@ -990,18 +1153,34 @@ export default function CSVUploader({
           {/* Quick preview of first few transactions */}
           <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 mb-2">Preview</p>
-            <div className="space-y-1">
-              {previewResult.transactions.slice(0, 3).map((txn, idx) => (
-                <div key={idx} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-500">{txn.date}</span>
-                    <span className="text-slate-900 font-medium">{txn.payee}</span>
+            <div className="space-y-2">
+              {previewResult.transactions.slice(0, 3).map((txn, idx) => {
+                const suggestion = aiSuggestions.get(txn.import_row_hash)
+                const override = categoryOverrides.get(txn.import_row_hash)
+                const categoryName = override
+                  ? categories.find((c) => c.id === override)?.name
+                  : suggestion?.categoryName
+                return (
+                  <div key={idx} className="flex items-center justify-between text-sm gap-2">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className="text-slate-500 whitespace-nowrap">{txn.date}</span>
+                      <span className="text-slate-900 font-medium truncate">{txn.payee}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {aiLoadingState === 'loading' && !suggestion ? (
+                        <span className="text-xs text-slate-400 animate-pulse">...</span>
+                      ) : categoryName ? (
+                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded truncate max-w-[100px]">
+                          {categoryName}
+                        </span>
+                      ) : null}
+                      <span className={txn.amount >= 0 ? 'text-emerald-600 font-semibold' : 'text-rose-600 font-semibold'}>
+                        {txn.amount >= 0 ? '+' : ''}${Math.abs(txn.amount).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
-                  <span className={txn.amount >= 0 ? 'text-emerald-600 font-semibold' : 'text-rose-600 font-semibold'}>
-                    {txn.amount >= 0 ? '+' : ''}${Math.abs(txn.amount).toFixed(2)}
-                  </span>
-                </div>
-              ))}
+                )
+              })}
               {previewResult.transactions.length > 3 && (
                 <p className="text-xs text-slate-500 mt-1">
                   +{previewResult.transactions.length - 3} more transactions
@@ -1425,7 +1604,7 @@ export default function CSVUploader({
                       <span className="font-semibold text-slate-700">{status.value}</span>
                       <Select
                         value={statusMap[status.key] ?? ''}
-                        onChange={(event) => updateStatusMapping(status.key, event.target.value)}
+                        onChange={(event) => updateStatusMapping(status.key, event.target.value as StatusMappingValue | '')}
                         className="w-full text-xs"
                       >
                         <option value="">Select mapping</option>
@@ -1631,8 +1810,15 @@ export default function CSVUploader({
                         <td className="px-4 py-3 text-sm text-slate-500">
                           {transaction.description ?? 'No description'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-500">
-                          {transaction.category ?? ''}
+                        <td className="px-4 py-3">
+                          <ImportPreviewCategoryCell
+                            rowHash={transaction.import_row_hash}
+                            suggestion={aiSuggestions.get(transaction.import_row_hash)}
+                            override={categoryOverrides.get(transaction.import_row_hash)}
+                            categories={categories}
+                            loading={aiLoadingState === 'loading' && !aiSuggestions.has(transaction.import_row_hash)}
+                            onOverride={handleCategoryOverride}
+                          />
                         </td>
                         <td
                           className={`px-4 py-3 text-sm font-semibold text-right whitespace-nowrap ${

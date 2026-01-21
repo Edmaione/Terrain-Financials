@@ -34,7 +34,7 @@ type ImportRowIssue = {
   rowNumber: number | null
   severity: 'error' | 'warning'
   message: string
-  rawRow?: Record<string, string> | null
+  rawRow?: Record<string, unknown> | null
 }
 
 function buildStatusIssue(
@@ -471,7 +471,7 @@ export async function runCsvImport({
       const { inserts, updates } = planCsvImport(preparedTransactions, existingRecords)
 
       const { insertedRows: inserted, skippedCount, errors: insertErrors } =
-        await insertTransactions(inserts)
+        await insertTransactions(inserts as PreparedTransaction[])
       insertedRows += inserted.length
       skippedRows += skippedCount
       if (insertErrors.length > 0) {
@@ -486,7 +486,7 @@ export async function runCsvImport({
       }
 
       if (updates.length > 0) {
-        const { updatedCount, errors: updateErrors } = await updateTransactions(updates)
+        const { updatedCount, errors: updateErrors } = await updateTransactions(updates as Array<PreparedTransaction & { id: string }>)
         skippedRows += updatedCount
         if (updateErrors.length > 0) {
           errorRows += updateErrors.length

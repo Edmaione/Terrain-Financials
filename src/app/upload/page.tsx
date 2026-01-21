@@ -3,7 +3,6 @@ import CSVUploader from '@/components/CSVUploader'
 import { fetchActiveAccounts } from '@/lib/accounts'
 import PageHeader from '@/components/PageHeader'
 import AlertBanner from '@/components/AlertBanner'
-import { Button } from '@/design-system/components/Button'
 import { Card } from '@/design-system/components/Card'
 import { colors } from '@/design-system/tokens'
 import { tokenVar } from '@/design-system/utils'
@@ -33,9 +32,12 @@ export default async function UploadPage({
         title="Upload transactions"
         description="Import CSV files from your bank to keep transactions up to date."
         actions={(
-          <Button as={Link} href="/transactions?review_status=needs_review" variant="secondary" size="sm">
+          <Link
+            href="/transactions?review_status=needs_review"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+          >
             Review unreviewed
-          </Button>
+          </Link>
         )}
       />
 

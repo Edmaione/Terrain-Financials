@@ -193,7 +193,7 @@ export default function TransactionTable({
         break
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, focusedIndex, selectedIds, handleApprove, handleBulkAction])
+  }, [transactions, focusedIndex, selectedIds])
 
   // Add keyboard listener
   useEffect(() => {

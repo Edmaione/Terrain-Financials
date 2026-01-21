@@ -31,6 +31,12 @@ export type CanonicalImportRow = ParsedTransaction & {
   import_id: string | null
   import_row_hash: string
   account_id?: string | null
+  // AI suggestion fields (populated from preview categorization)
+  ai_suggested_category?: string | null
+  ai_suggested_category_name?: string | null
+  ai_confidence?: number
+  ai_source?: 'rule' | 'ai' | 'pattern'
+  ai_rule_id?: string | null
 }
 
 function normalizeValue(value?: string | null): string | null {

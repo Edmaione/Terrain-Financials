@@ -5,7 +5,8 @@ import { CanonicalImportRow } from '@/lib/import/transform-to-canonical'
 import { normalizeImportMapping, validateMapping } from '@/lib/import-mapping'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ALLOWED_POSTING_STATUSES, type StatusMappingValue } from '@/lib/import-status'
-import { AmountStrategy, ImportFieldMapping } from '@/types'
+import { type DateFormatHint } from '@/lib/import-date-format'
+import { AmountStrategy, ImportFieldMapping, SourceSystem } from '@/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -209,9 +210,9 @@ export async function POST(request: NextRequest) {
           mapping,
           amountStrategy: amountStrategy as AmountStrategy,
           statusMap: statusMap ?? undefined,
-          dateFormat,
+          dateFormat: dateFormat as DateFormatHint | null,
           sourceSystem:
-            typeof sourceSystem === 'string' && sourceSystem.length > 0 ? sourceSystem : undefined,
+            typeof sourceSystem === 'string' && sourceSystem.length > 0 ? (sourceSystem as SourceSystem) : undefined,
           canonicalRows,
           totalRows,
           errorRows,
@@ -436,9 +437,9 @@ export async function POST(request: NextRequest) {
       mapping,
       amountStrategy: amountStrategy as AmountStrategy,
       statusMap: statusMap ?? undefined,
-      dateFormat,
+      dateFormat: dateFormat as DateFormatHint | null,
       sourceSystem:
-        typeof sourceSystem === 'string' && sourceSystem.length > 0 ? sourceSystem : undefined,
+        typeof sourceSystem === 'string' && sourceSystem.length > 0 ? (sourceSystem as SourceSystem) : undefined,
       canonicalRows,
       totalRows,
       errorRows,
