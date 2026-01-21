@@ -69,6 +69,8 @@ export default function TransactionTable({
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [accountProcessingId, setAccountProcessingId] = useState<string | null>(null)
   const [accountOverrides, setAccountOverrides] = useState<Record<string, string>>({})
+  const [categoryProcessingId, setCategoryProcessingId] = useState<string | null>(null)
+  const [categoryOverrides, setCategoryOverrides] = useState<Record<string, string>>({})
   const [focusedIndex, setFocusedIndex] = useState<number>(-1)
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
@@ -77,6 +79,7 @@ export default function TransactionTable({
   useEffect(() => {
     setSelectedIds([])
     setAccountOverrides({})
+    setCategoryOverrides({})
   }, [transactions])
 
   const allSelected = useMemo(() => {
@@ -124,17 +127,6 @@ export default function TransactionTable({
     const ids = unreviewedTransactions.map(t => t.id)
     setSelectedIds(ids)
   }, [unreviewedTransactions])
-
-  // Quick selection: Select low confidence (needs attention)
-  const selectLowConfidence = useCallback(() => {
-    const ids = lowConfidenceTransactions.map(t => t.id)
-    setSelectedIds(ids)
-    toast({
-      variant: 'info',
-      title: `Selected ${ids.length} low-confidence transactions`,
-      description: 'These need manual review.',
-    })
-  }, [lowConfidenceTransactions, toast])
 
   // Keyboard navigation handler
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
@@ -387,6 +379,46 @@ export default function TransactionTable({
       })
     } finally {
       setAccountProcessingId(null)
+    }
+  }
+
+  const handleCategoryUpdate = async (transactionId: string, nextCategoryId: string) => {
+    if (!nextCategoryId) {
+      return
+    }
+
+    const previousCategoryId = categoryOverrides[transactionId]
+    setCategoryOverrides((prev) => ({ ...prev, [transactionId]: nextCategoryId }))
+    setCategoryProcessingId(transactionId)
+
+    try {
+      await apiRequest(`/api/transactions/${transactionId}/categorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_id: nextCategoryId }),
+      })
+      toast({
+        variant: 'success',
+        title: 'Category updated',
+        description: 'Transaction category updated successfully.',
+      })
+      router.refresh()
+    } catch (error) {
+      console.error('Category update failed', error)
+      setCategoryOverrides((prev) => {
+        if (previousCategoryId === undefined) {
+          const { [transactionId]: _, ...rest } = prev
+          return rest
+        }
+        return { ...prev, [transactionId]: previousCategoryId }
+      })
+      toast({
+        variant: 'error',
+        title: 'Category update failed',
+        description: error instanceof Error ? error.message : 'Failed to update category.',
+      })
+    } finally {
+      setCategoryProcessingId(null)
     }
   }
 
@@ -654,11 +686,10 @@ export default function TransactionTable({
               </TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Description</TableHead>
-              <TableHead>Account</TableHead>
+              <TableHead>Category</TableHead>
               <TableHead className="text-right">Spent</TableHead>
               <TableHead className="text-right">Received</TableHead>
               <TableHead>From/To</TableHead>
-              <TableHead>Category</TableHead>
               <TableHead className="text-center">AI</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -688,7 +719,6 @@ export default function TransactionTable({
                 transaction.subcategory ||
                 null
               const categoryName = getCategoryDisplayLabel(transaction)
-              const categorySection = resolvedCategory?.section || null
               const needsCategorization = categoryName === NEEDS_CATEGORIZATION_LABEL
               const isCategoryPickerOpen = openCategoryFor === transaction.id
               const spentAmount = amount < 0 ? Math.abs(amount) : 0
@@ -747,31 +777,30 @@ export default function TransactionTable({
                   </TableCell>
                   <TableCell style={{ color: tokenVar('gray-900', colors.gray[900]) }}>
                     <Select
-                      value={accountIdValue}
+                      value={categoryOverrides[transaction.id] || suggestedCategoryId || ''}
                       onChange={(event) =>
-                        handleAccountUpdate(transaction.id, event.target.value)
+                        handleCategoryUpdate(transaction.id, event.target.value)
                       }
                       className="w-48"
                       style={{ height: spacing[10] }}
-                      aria-label={`Select account for ${transaction.payee}`}
-                      disabled={accountProcessingId === transaction.id}
+                      aria-label={`Select category for ${transaction.payee}`}
+                      disabled={categoryProcessingId === transaction.id}
                     >
-                      <option value="" disabled>
-                        Unassigned
+                      <option value="">
+                        {needsCategorization ? 'Select category' : 'No category'}
                       </option>
-                      {accounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.name}
-                          {account.institution ? ` · ${account.institution}` : ''}
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.section ? `${category.section} · ${category.name}` : category.name}
                         </option>
                       ))}
                     </Select>
-                    {transferName && (
+                    {transaction.ai_suggested?.name && !categoryOverrides[transaction.id] && (
                       <div
                         className="mt-1 text-xs"
                         style={{ color: tokenVar('gray-500', colors.gray[500]) }}
                       >
-                        Transfer: {accountName} to {transferName}
+                        AI suggested
                       </div>
                     )}
                   </TableCell>
@@ -793,65 +822,6 @@ export default function TransactionTable({
                   </TableCell>
                   <TableCell className="text-sm" style={{ color: tokenVar('gray-700', colors.gray[700]) }}>
                     {fromTo}
-                  </TableCell>
-                  <TableCell>
-                    {isReviewed ? (
-                      <div>
-                        <div
-                          className="font-medium"
-                          style={{ color: tokenVar('gray-900', colors.gray[900]) }}
-                        >
-                          {categoryName}
-                        </div>
-                        {categorySection && !needsCategorization && (
-                          <div
-                            className="text-xs"
-                            style={{ color: tokenVar('gray-500', colors.gray[500]) }}
-                          >
-                            {categorySection}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        {transaction.ai_suggested?.name ? (
-                          <div
-                            className="font-medium"
-                            style={{ color: tokenVar('gray-900', colors.gray[900]) }}
-                          >
-                            {transaction.ai_suggested.name}
-                            <span
-                              className="ml-2 text-xs"
-                              style={{ color: tokenVar('gray-500', colors.gray[500]) }}
-                            >
-                              AI suggested
-                            </span>
-                          </div>
-                        ) : !needsCategorization ? (
-                          <div
-                            className="font-medium"
-                            style={{ color: tokenVar('gray-900', colors.gray[900]) }}
-                          >
-                            {categoryName}
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenCategoryFor(transaction.id)
-                              setSelectedCategoryId('')
-                            }}
-                            className="text-left font-medium hover:text-[var(--ds-category-hover)]"
-                            style={{
-                              color: tokenVar('gray-700', colors.gray[700]),
-                              ['--ds-category-hover' as string]: tokenVar('gray-900', colors.gray[900]),
-                            }}
-                          >
-                            Needs categorization
-                          </button>
-                        )}
-                      </div>
-                    )}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-center">
                     {!isReviewed && confidence !== null && (

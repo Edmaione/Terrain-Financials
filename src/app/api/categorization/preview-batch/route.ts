@@ -29,6 +29,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as PreviewCategorizationRequest
 
+
     if (!body.transactions || !Array.isArray(body.transactions)) {
       return NextResponse.json<PreviewCategorizationResponse>(
         { ok: false, suggestions: [], error: 'transactions array is required' },

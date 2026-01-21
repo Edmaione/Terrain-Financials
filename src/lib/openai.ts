@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
 
+const DEBUG_AI = process.env.DEBUG_AI === 'true';
+
 let cachedClient: OpenAI | null | undefined;
 
 function getOpenAIClient() {
@@ -9,10 +11,12 @@ function getOpenAIClient() {
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
+    console.warn('[openai] OPENAI_API_KEY is not set - AI categorization disabled');
     cachedClient = null;
     return null;
   }
 
+  if (DEBUG_AI) console.log('[openai] OpenAI client initialized successfully');
   cachedClient = new OpenAI({ apiKey });
   return cachedClient;
 }
@@ -84,7 +88,14 @@ Return as JSON.`
   });
 
   const result = response.choices[0].message.content;
-  return result ? JSON.parse(result) : null;
+  if (!result) return null;
+
+  try {
+    return JSON.parse(result);
+  } catch {
+    console.error('[openai] Failed to parse PDF extraction response as JSON');
+    return null;
+  }
 }
 
 /**
@@ -97,6 +108,8 @@ export async function suggestCategory(
   availableCategories: Array<{ id: string; name: string; section: string }>,
   historicalTransactions?: Array<{ payee: string; category: string }>
 ) {
+  if (DEBUG_AI) console.log('[openai] suggestCategory called for:', payee.substring(0, 30));
+
   const openai = getOpenAIClient();
   if (!openai) {
     console.warn('[openai] OPENAI_API_KEY missing. Skipping category suggestion.');
@@ -165,25 +178,33 @@ Return JSON with:
   "reasoning": "brief explanation"
 }`;
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: 'You are a financial categorization assistant for a landscaping business. Prioritize accuracy over speed. When uncertain, use a lower confidence score. Always return valid JSON matching the exact category names provided.',
-      },
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.2, // Lower temperature for more consistent results
-    max_tokens: 250,
-  });
+  if (DEBUG_AI) console.log('[openai] Calling GPT-4o-mini...');
 
-  const result = response.choices[0].message.content;
-  return result ? JSON.parse(result) : null;
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a financial categorization assistant for a landscaping business. Prioritize accuracy over speed. When uncertain, use a lower confidence score. Always return valid JSON matching the exact category names provided.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.2, // Lower temperature for more consistent results
+      max_tokens: 250,
+    });
+
+    const result = response.choices[0].message.content;
+    if (DEBUG_AI) console.log('[openai] Response received:', result?.substring(0, 100));
+    return result ? JSON.parse(result) : null;
+  } catch (error) {
+    console.error('[openai] API call failed:', error);
+    return null;
+  }
 }
 
 /**
@@ -247,8 +268,12 @@ Return JSON array with objects containing:
 
     const result = response.choices[0].message.content;
     if (result) {
-      const parsed = JSON.parse(result);
-      results.push(...(parsed.categorizations || []));
+      try {
+        const parsed = JSON.parse(result);
+        results.push(...(parsed.categorizations || []));
+      } catch {
+        console.error('[openai] Failed to parse batch categorization response as JSON');
+      }
     }
   }
 

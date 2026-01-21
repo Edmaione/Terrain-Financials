@@ -3,6 +3,8 @@ import { supabaseAdmin } from './supabase';
 import { suggestCategory } from './openai';
 import { Transaction, Category, CategorizationRule } from '@/types';
 
+const DEBUG_CATEGORIZATION = process.env.DEBUG_CATEGORIZATION === 'true';
+
 /**
  * Normalize a payee name for fuzzy matching
  * "AMAZON.COM*ABC123" → "amazon"
@@ -126,22 +128,30 @@ export async function categorizeTransaction(
   subcategory_id?: string | null;
   confidence: number;
   rule_id?: string;
+  source?: 'exact_rule' | 'fuzzy_rule' | 'pattern_rule' | 'ai' | 'none';
 }> {
+  if (DEBUG_CATEGORIZATION) {
+    console.log('[categorize] Starting for:', transaction.payee.substring(0, 30));
+  }
+
   // Step 1: Try exact match rules first
   const exactMatch = await findExactMatchRule(transaction.payee);
   if (exactMatch) {
+    if (DEBUG_CATEGORIZATION) console.log('[categorize] Found exact rule match');
     await incrementRuleUsage(exactMatch.id);
     return {
       category_id: exactMatch.category_id,
       subcategory_id: exactMatch.subcategory_id || null,
       confidence: exactMatch.confidence,
       rule_id: exactMatch.id,
+      source: 'exact_rule',
     };
   }
 
   // Step 2: Try fuzzy match rules (new step)
   const fuzzyMatch = await findFuzzyMatchRule(transaction.payee);
   if (fuzzyMatch) {
+    if (DEBUG_CATEGORIZATION) console.log('[categorize] Found fuzzy rule match');
     await incrementRuleUsage(fuzzyMatch.id);
     // Slightly reduce confidence for fuzzy matches
     const adjustedConfidence = Math.min(fuzzyMatch.confidence * 0.9, 0.90);
@@ -150,53 +160,101 @@ export async function categorizeTransaction(
       subcategory_id: fuzzyMatch.subcategory_id || null,
       confidence: adjustedConfidence,
       rule_id: fuzzyMatch.id,
+      source: 'fuzzy_rule',
     };
   }
 
   // Step 3: Try pattern match rules
   const patternMatch = await findPatternMatchRule(transaction.payee, transaction.description);
   if (patternMatch) {
+    if (DEBUG_CATEGORIZATION) console.log('[categorize] Found pattern rule match');
     await incrementRuleUsage(patternMatch.id);
     return {
       category_id: patternMatch.category_id,
       subcategory_id: patternMatch.subcategory_id || null,
       confidence: patternMatch.confidence,
       rule_id: patternMatch.id,
+      source: 'pattern_rule',
     };
   }
 
   // Step 4: Use AI to suggest category
   const categories = await getAllCategories();
+  if (DEBUG_CATEGORIZATION) {
+    console.log('[categorize] Found', categories.length, 'categories for AI');
+  }
+
+  if (categories.length === 0) {
+    console.warn('[categorize] No categories found in database - AI cannot suggest');
+    return { category_id: null, confidence: 0, source: 'none' };
+  }
+
   const historicalTransactions = await getHistoricalTransactionsForPayee(transaction.payee);
+  if (DEBUG_CATEGORIZATION) {
+    console.log('[categorize] Calling OpenAI for:', transaction.payee.substring(0, 20));
+  }
 
-  const suggestion = await suggestCategory(
-    transaction.payee,
-    transaction.description,
-    transaction.amount,
-    categories.map(c => ({
-      id: c.id,
-      name: c.name,
-      section: c.section || '',
-    })),
-    historicalTransactions.map(t => ({
-      payee: t.payee,
-      category: t.category?.name || 'Uncategorized',
-    }))
-  );
+  try {
+    const suggestion = await suggestCategory(
+      transaction.payee,
+      transaction.description,
+      transaction.amount,
+      categories.map(c => ({
+        id: c.id,
+        name: c.name,
+        section: c.section || '',
+      })),
+      historicalTransactions.map(t => ({
+        payee: t.payee,
+        category: t.category?.name || 'Uncategorized',
+      }))
+    );
 
-  if (suggestion) {
-    const category = categories.find(c => c.name === suggestion.category_name);
-    if (category) {
-      return {
-        category_id: category.id,
-        confidence: suggestion.confidence,
-      };
+    if (DEBUG_CATEGORIZATION) {
+      console.log('[categorize] AI response:', suggestion ? `${suggestion.category_name} (${suggestion.confidence})` : 'NULL');
     }
+
+    if (suggestion) {
+      // AI returns "Category Name (Section)" format, need to match flexibly
+      const suggestedName = suggestion.category_name;
+
+      // Try exact match first
+      let category = categories.find(c => c.name === suggestedName);
+
+      // Try matching "Name (Section)" format by extracting just the name
+      if (!category && suggestedName.includes('(')) {
+        const nameOnly = suggestedName.split('(')[0].trim();
+        category = categories.find(c => c.name === nameOnly);
+      }
+
+      // Try case-insensitive match
+      if (!category) {
+        const lowerSuggested = suggestedName.toLowerCase();
+        category = categories.find(c =>
+          c.name.toLowerCase() === lowerSuggested ||
+          `${c.name} (${c.section})`.toLowerCase() === lowerSuggested
+        );
+      }
+
+      if (category) {
+        if (DEBUG_CATEGORIZATION) console.log('[categorize] Matched category:', category.name);
+        return {
+          category_id: category.id,
+          confidence: suggestion.confidence,
+          source: 'ai',
+        };
+      } else {
+        console.warn('[categorize] AI suggested category not found:', suggestion.category_name, '- available:', categories.slice(0, 5).map(c => c.name));
+      }
+    }
+  } catch (error) {
+    console.error('[categorize] AI suggestion failed:', error);
   }
 
   return {
     category_id: null,
     confidence: 0,
+    source: 'none',
   };
 }
 

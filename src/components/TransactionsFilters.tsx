@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { IconFilter, IconRefresh, IconX } from '@/components/ui/icons'
+import { IconChevronDown, IconFilter, IconRefresh, IconX } from '@/components/ui/icons'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -98,7 +98,29 @@ export default function TransactionsFilters({
   const [minAmount, setMinAmount] = useState(amountMin || '')
   const [maxAmount, setMaxAmount] = useState(amountMax || '')
   const [importValue, setImportValue] = useState(importId || '')
+  const [isCollapsed, setIsCollapsed] = useState(true)
   const debugDataFlow = process.env.NEXT_PUBLIC_DEBUG_DATA_FLOW === 'true'
+
+  const updateParams = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString())
+
+    Object.entries(updates).forEach(([key, value]) => {
+      if (!value) {
+        params.delete(key)
+      } else {
+        params.set(key, value)
+      }
+    })
+
+    if (debugDataFlow) {
+      console.info('[data-flow] Transactions filters updated', {
+        updates,
+        params: params.toString(),
+      })
+    }
+
+    router.push(`${pathname}?${params.toString()}`)
+  }, [searchParams, debugDataFlow, router, pathname])
 
   useEffect(() => {
     if (range === 'custom') {
@@ -134,7 +156,7 @@ export default function TransactionsFilters({
     }, 400)
 
     return () => window.clearTimeout(handler)
-  }, [searchValue, query])
+  }, [searchValue, query, updateParams])
 
   const activeReview = reviewStatus ?? 'all'
   const activeBankStatus = bankStatus ?? 'all'
@@ -219,27 +241,6 @@ export default function TransactionsFilters({
     query,
   ])
 
-  const updateParams = (updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString())
-
-    Object.entries(updates).forEach(([key, value]) => {
-      if (!value) {
-        params.delete(key)
-      } else {
-        params.set(key, value)
-      }
-    })
-
-    if (debugDataFlow) {
-      console.info('[data-flow] Transactions filters updated', {
-        updates,
-        params: params.toString(),
-      })
-    }
-
-    router.push(`${pathname}?${params.toString()}`)
-  }
-
   const handleRangeChange = (value: string) => {
     if (value !== 'custom') {
       updateParams({ range: value, start: null, end: null })
@@ -316,12 +317,23 @@ export default function TransactionsFilters({
   }
 
   return (
-    <Card className="sticky top-6 z-10">
+    <Card className="z-10">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600">
-            <IconFilter className="h-5 w-5" />
-          </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Expand filters' : 'Collapse filters'}
+          >
+            <IconChevronDown
+              className={cn(
+                'h-4 w-4 transition-transform',
+                isCollapsed ? '' : 'rotate-180'
+              )}
+            />
+          </button>
           <div>
             <p className="text-sm font-semibold text-slate-700">Filters</p>
             <p className="text-xs text-slate-500">{filterSummary}</p>
@@ -367,6 +379,9 @@ export default function TransactionsFilters({
           <span className="text-xs text-slate-500">Updated {lastUpdated}</span>
         </div>
       </div>
+
+      {!isCollapsed && (
+        <>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="space-y-2">
@@ -595,6 +610,8 @@ export default function TransactionsFilters({
             Apply
           </Button>
         </div>
+      )}
+      </>
       )}
     </Card>
   )

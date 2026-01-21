@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { IconPlusCircle, IconRefresh } from '@/components/ui/icons'
 import AlertBanner from '@/components/AlertBanner'
 import { apiRequest } from '@/lib/api-client'
@@ -60,7 +60,7 @@ export default function CategoriesManager() {
     })
   }, [categories, searchValue])
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -77,11 +77,11 @@ export default function CategoriesManager() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [toast])
 
   useEffect(() => {
     fetchCategories()
-  }, [])
+  }, [fetchCategories])
 
   const resetForm = () => {
     setEditingId(null)

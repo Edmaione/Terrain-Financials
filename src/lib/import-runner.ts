@@ -14,7 +14,8 @@ import { type DateFormatHint } from '@/lib/import-date-format'
 import { validateTransactionStatusPayload } from '@/lib/transaction-status'
 import { AmountStrategy, ImportFieldMapping, ParsedTransaction } from '@/types'
 
-const CHUNK_SIZE = 500
+const MAX_CHUNK_SIZE = 500
+const MIN_CHUNK_SIZE = 5
 
 type ImportStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
 
@@ -117,6 +118,7 @@ async function insertTransactions(items: PreparedTransaction[]) {
   }
 
   const insertPayload = validItems.map((item) => item.transaction)
+
   const { data, error } = await supabaseAdmin
     .from('transactions')
     .upsert(insertPayload, {
@@ -398,7 +400,13 @@ export async function runCsvImport({
       )
     }
 
-    for (let offset = 0; offset < parsedTransactions.length; offset += CHUNK_SIZE) {
+    // Dynamic chunk size to ensure progress updates (aim for ~10-20 updates)
+    const chunkSize = Math.max(
+      MIN_CHUNK_SIZE,
+      Math.min(MAX_CHUNK_SIZE, Math.ceil(parsedTransactions.length / 10))
+    )
+
+    for (let offset = 0; offset < parsedTransactions.length; offset += chunkSize) {
       const currentImport = await fetchImport(importId)
 
       if (currentImport.status === 'canceled') {
@@ -409,7 +417,7 @@ export async function runCsvImport({
         return
       }
 
-      const chunk = parsedTransactions.slice(offset, offset + CHUNK_SIZE)
+      const chunk = parsedTransactions.slice(offset, offset + chunkSize)
 
       const { preparedTransactions, errors } = await prepareCsvTransactions({
         transactions: chunk,
