@@ -16,6 +16,7 @@ export type SourceSystem =
   | 'citi'
   | 'dcu'
   | 'sheffield'
+  | 'quickbooks'
   | 'other';
 export type AccountClass = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
 export type NormalBalance = 'debit' | 'credit';

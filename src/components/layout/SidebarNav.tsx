@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   IconBarChart,
+  IconClipboard,
   IconFileUp,
   IconLayoutDashboard,
   IconReceipt,
@@ -18,6 +19,7 @@ const sections = [
       { href: '/', label: 'Dashboard', icon: IconLayoutDashboard },
       { href: '/transactions', label: 'Transactions', icon: IconReceipt },
       { href: '/upload', label: 'Upload', icon: IconFileUp },
+      { href: '/import-qb', label: 'Import QB', icon: IconClipboard },
     ],
   },
   {
