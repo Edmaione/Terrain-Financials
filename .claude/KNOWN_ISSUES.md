@@ -1,5 +1,29 @@
 # Known Issues & Technical Debt
 
+Last updated: 2026-01-27
+
+## Active Issues
+
+### PDF Statement Parsing — Amex Accuracy
+- **Status**: Major improvements + workflow change, ready for testing
+- **Problem**: 12-page Amex Business Prime statements had poor extraction accuracy, and PDF transactions weren't becoming DB transactions
+- **Root causes**:
+  1. Sending all 12 pages in one GPT-4o request caused context overload
+  2. Sign convention mismatch between PDF and DB (payments showed negative on statement but need positive in DB)
+  3. Unmatched PDF transactions weren't being created in DB
+- **What was done (Jan 28)**:
+  1. Added highly specific `AMEX_BUSINESS_PRIME_PROMPT` based on actual statement analysis
+  2. Implemented **chunked processing**: metadata from page 1, transactions in 3-page chunks
+  3. Added statement type auto-detection from first page
+  4. **Fixed sign convention**: explicit instructions to flip signs (PDF negative payments → positive, PDF positive charges → negative)
+  5. **New workflow**: Unmatched PDF transactions now CREATE new DB transactions (source='pdf_statement')
+  6. All extracted transactions (matched + created) are auto-cleared for reconciliation
+- **Expected results**: PDF upload now serves as both transaction import AND reconciliation in one step
+- **Files**: `src/lib/openai.ts`, `src/lib/reconciliation.ts`, `src/app/api/statements/[id]/match-extracted/route.ts`
+- **Debug**: Check server console for `[reconciliation]` logs showing matched/created counts
+
+---
+
 Last diagnostic scan: 2026-01-21
 
 ## Summary
