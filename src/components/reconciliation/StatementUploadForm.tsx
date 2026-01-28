@@ -197,14 +197,14 @@ export default function StatementUploadForm({
 
   return (
     <div className="space-y-6 max-w-2xl">
-      {/* Hidden file input */}
+      {/* Hidden file input — positioned off-screen to avoid click interference */}
       <input
         ref={fileInputRef}
         type="file"
         accept=".pdf,.csv,.png,.jpg,.jpeg"
         onChange={handleFileChange}
-        className="absolute opacity-0 pointer-events-none"
-        style={{ width: 0, height: 0 }}
+        className="sr-only"
+        tabIndex={-1}
       />
 
       {/* Step indicator */}
