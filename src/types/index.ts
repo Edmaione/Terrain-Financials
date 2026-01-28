@@ -17,6 +17,7 @@ export type SourceSystem =
   | 'dcu'
   | 'sheffield'
   | 'quickbooks'
+  | 'pdf_statement'
   | 'other';
 export type AccountClass = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
 export type NormalBalance = 'debit' | 'credit';
@@ -33,6 +34,7 @@ export interface Account {
   institution?: string;
   is_active: boolean;
   opening_balance: number;
+  opening_balance_date: string | null;
   current_balance: number;
   notes?: string;
   account_class?: AccountClass | null;
@@ -417,6 +419,208 @@ export interface WeeklySummary {
     amount: number;
     category: string;
   }>;
+}
+
+// CFO Reporting Package types
+
+export interface PLComparisonLine {
+  category_id: string;
+  category_name: string;
+  section: string;
+  indent_level: number;
+  is_parent: boolean;
+  current_amount: number;
+  previous_amount: number;
+  variance_amount: number;
+  variance_percent: number | null; // null when previous is 0
+}
+
+export interface PLComparisonReport {
+  current: PLReport;
+  previous: PLReport;
+  comparison_label: string; // e.g. "Prior Year", "Prior Period"
+  lines: PLComparisonLine[];
+}
+
+export interface MonthlyBucket {
+  month: string;  // "2025-01"
+  label: string;  // "Jan"
+  amount: number;
+}
+
+export interface IncomeExpenseTrend {
+  months: Array<{
+    month: string;
+    label: string;
+    income: number;
+    cogs: number;
+    expenses: number;
+    net: number;
+    margin_percent: number | null;
+  }>;
+  avg_income: number;
+  avg_expenses: number;
+  avg_net: number;
+  best_month: { month: string; net: number };
+  worst_month: { month: string; net: number };
+}
+
+export interface CategoryMonthlyTrend {
+  category_id: string;
+  category_name: string;
+  buckets: MonthlyBucket[];
+  total: number;
+  monthly_avg: number;
+}
+
+export interface ExpenseTrendReport {
+  months: string[];      // ["2025-01", "2025-02", ...]
+  month_labels: string[]; // ["Jan", "Feb", ...]
+  categories: CategoryMonthlyTrend[];
+}
+
+export interface TaxSummaryLine {
+  category_id: string;
+  category_name: string;
+  qb_equivalent: string | null;
+  section: string;
+  amount: number;
+  transaction_count: number;
+}
+
+export interface TaxSummaryReport {
+  period_start: string;
+  period_end: string;
+  lines: TaxSummaryLine[];
+  total_deductible: number;
+}
+
+export interface AccountBalanceSummary {
+  account_id: string;
+  account_name: string;
+  account_type: AccountType;
+  institution: string | null;
+  balance: number;
+  transaction_count: number;
+  period_inflows: number;
+  period_outflows: number;
+  last_activity_date: string | null;
+}
+
+export interface AccountBalancesReport {
+  accounts: AccountBalanceSummary[];
+  total_cash: number;
+  total_cc_debt: number;
+  total_loan_balance: number;
+}
+
+export interface PayeeAnalysis {
+  payee: string;
+  total_amount: number;
+  transaction_count: number;
+  categories: Array<{ category_name: string; amount: number }>;
+  first_date: string;
+  last_date: string;
+}
+
+export interface PayeeAnalysisReport {
+  payees: PayeeAnalysis[];
+}
+
+export interface OwnerEquitySummary {
+  lines: Array<{
+    category_id: string;
+    category_name: string;
+    amount: number;
+    transaction_count: number;
+  }>;
+  total_draws: number;
+  total_salary: number;
+  total_tax_payments: number;
+  total_loan_payments: number;
+  grand_total: number;
+}
+
+export interface GrossMarginReport {
+  months: Array<{
+    month: string;
+    label: string;
+    income: number;
+    cogs: number;
+    gross_profit: number;
+    margin_percent: number | null;
+  }>;
+  current_margin: number | null;
+  trailing_avg_margin: number | null;
+  cogs_breakdown: CategoryMonthlyTrend[];
+}
+
+// Reconciliation types
+export type StatementStatus = 'pending' | 'in_progress' | 'reconciled';
+
+export interface ExtractedTransaction {
+  date: string;
+  description: string;
+  amount: number;
+}
+
+export interface BankStatement {
+  id: string;
+  account_id: string;
+  period_start: string;
+  period_end: string;
+  ending_balance: number;
+  beginning_balance: number | null;
+  file_url: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  import_id: string | null;
+  status: StatementStatus;
+  reconciled_at: string | null;
+  notes: string | null;
+  extracted_data: ExtractedStatementData | null;
+  unmatched_transactions: ExtractedTransaction[] | null;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  account?: Account;
+}
+
+export interface ReconciliationSummary {
+  statement: BankStatement;
+  beginning_balance: number;
+  cleared_deposits: number;
+  cleared_withdrawals: number;
+  computed_ending_balance: number;
+  difference: number;
+  cleared_count: number;
+  uncleared_count: number;
+  is_credit_card: boolean;
+  transactions: Array<Transaction & { is_cleared: boolean }>;
+  unmatched_statement_transactions: ExtractedTransaction[];
+}
+
+export interface ExtractedStatementData {
+  account_type: 'checking' | 'savings' | 'credit_card' | 'loan';
+  account_number_last4: string | null;
+  period_start: string;
+  period_end: string;
+  beginning_balance: number;
+  ending_balance: number;
+  transactions: Array<{
+    date: string;
+    description: string;
+    amount: number;
+  }>;
+}
+
+export interface StatementGridCell {
+  account_id: string;
+  account_name: string;
+  month: string; // "2025-01"
+  statement_id: string | null;
+  status: StatementStatus | null;
 }
 
 // Dashboard types

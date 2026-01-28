@@ -1,4 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { normalizeStatementBalance } from '@/lib/extraction/sign-normalizer';
+import { toParsedTransactions } from '@/lib/extraction/to-parsed-transactions';
+import { prepareCsvTransactions, AccountLookup } from '@/lib/csv-importer';
 import { BankStatement, ReconciliationSummary, StatementGridCell } from '@/types';
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
@@ -112,17 +115,16 @@ export async function computeReconciliationSummary(
   if (!stmt) return null;
 
   const isCreditCard = stmt.account?.type === 'credit_card';
+  const accountType = stmt.account?.type || 'checking';
 
   const rawBeginning = stmt.beginning_balance != null
     ? Number(stmt.beginning_balance)
     : await getBeginningBalance(stmt.account_id, stmt.period_start);
 
-  // For credit cards, statement balances are positive (amount owed) but internal
-  // transactions are negative (charges). Negate statement balances so math works
-  // in internal convention, then we'll display back in statement convention in the UI.
-  const signFlip = isCreditCard ? -1 : 1;
-  const beginningBalance = rawBeginning * signFlip;
-  const stmtEndingBalance = Number(stmt.ending_balance) * signFlip;
+  // Normalize statement balances to internal (DB) convention using the sign normalizer.
+  // Credit card: statement positive (owed) → internal negative (liability).
+  const beginningBalance = normalizeStatementBalance(rawBeginning, accountType);
+  const stmtEndingBalance = normalizeStatementBalance(Number(stmt.ending_balance), accountType);
 
   // Fetch all txns in period for this account
   const allTxns: any[] = [];
@@ -448,54 +450,113 @@ export async function matchExtractedTransactions(
     }
   }
 
-  // Create new transactions for unmatched items if enabled
+  // Create new transactions for unmatched items using the shared CSV import pipeline
   let createdCount = 0;
   if (createMissing && unmatchedTxns.length > 0) {
-    console.log(`[reconciliation] Creating ${unmatchedTxns.length} new transactions from PDF`);
+    console.log(`[reconciliation] Creating ${unmatchedTxns.length} new transactions from PDF via shared pipeline`);
 
-    const newTransactions = unmatchedTxns.map((ext) => ({
-      account_id: stmt.account_id,
-      date: ext.date,
-      payee: ext.description,
-      description: ext.card ? `Card: ${ext.card}` : null,
-      amount: ext.amount,
-      status: 'needs_review',
-      source: 'pdf_statement',
-      source_hash: `pdf_${statementId}_${ext.date}_${ext.description}_${ext.amount}`.substring(0, 64),
-    }));
+    try {
+      // Convert extracted transactions to ParsedTransaction format
+      const parsedTxns = toParsedTransactions(unmatchedTxns);
 
-    const { data: createdTxns, error: createError } = await supabaseAdmin
-      .from('transactions')
-      .insert(newTransactions)
-      .select('id');
+      // Create an import record for tracking
+      const { data: importRecord } = await supabaseAdmin
+        .from('imports')
+        .insert({
+          account_id: stmt.account_id,
+          file_name: `pdf_statement_${statementId}`,
+          status: 'running',
+          total_rows: unmatchedTxns.length,
+          processed_rows: 0,
+          inserted_rows: 0,
+          skipped_rows: 0,
+          error_rows: 0,
+          detected_institution: 'pdf_extraction',
+          detection_method: 'pdf_statement',
+        })
+        .select('id')
+        .single();
 
-    if (createError) {
-      console.error('[reconciliation] Failed to create transactions:', createError);
+      const importId = importRecord?.id || statementId;
+
+      // Fetch accounts for split detection
+      const { data: accountRows } = await supabaseAdmin
+        .from('accounts')
+        .select('id, name, type')
+        .eq('is_active', true);
+      const accounts: AccountLookup[] = (accountRows || []).map((a) => ({
+        id: a.id,
+        name: a.name,
+        type: a.type,
+      }));
+
+      // Run through the shared pipeline
+      const { preparedTransactions, errors } = await prepareCsvTransactions({
+        transactions: parsedTxns,
+        accountId: stmt.account_id,
+        accounts,
+        importId,
+        rowOffset: 0,
+      });
+
+      if (errors.length > 0) {
+        console.warn(`[reconciliation] ${errors.length} errors preparing PDF transactions:`, errors.slice(0, 3));
+      }
+
+      if (preparedTransactions.length > 0) {
+        // Insert transactions
+        const txnRows = preparedTransactions.map((p) => p.transaction);
+        const { data: createdTxns, error: createError } = await supabaseAdmin
+          .from('transactions')
+          .insert(txnRows)
+          .select('id');
+
+        if (createError) {
+          console.error('[reconciliation] Failed to create transactions:', createError);
+        } else {
+          createdCount = createdTxns?.length || 0;
+          console.log(`[reconciliation] Created ${createdCount} transactions via shared pipeline`);
+
+          // Mark newly created transactions as cleared for this statement
+          if (createdTxns && createdTxns.length > 0) {
+            const newCleared = createdTxns.map((t) => ({
+              statement_id: statementId,
+              transaction_id: t.id,
+              match_method: 'pdf_created',
+            }));
+
+            const { error: clearError } = await supabaseAdmin
+              .from('statement_transactions')
+              .insert(newCleared);
+
+            if (clearError) {
+              console.error('[reconciliation] Failed to clear new transactions:', clearError);
+            }
+          }
+        }
+      }
+
+      // Update import record
+      if (importRecord?.id) {
+        await supabaseAdmin
+          .from('imports')
+          .update({
+            status: 'succeeded',
+            processed_rows: unmatchedTxns.length,
+            inserted_rows: createdCount,
+            error_rows: errors.length,
+            finished_at: new Date().toISOString(),
+          })
+          .eq('id', importRecord.id);
+      }
+    } catch (pipelineError) {
+      console.error('[reconciliation] Shared pipeline failed, falling back:', pipelineError);
+      // Don't fail the whole operation — return what we matched
       return {
         matched: toInsertCleared.length,
         created: 0,
-        unmatched: unmatchedTxns
+        unmatched: unmatchedTxns,
       };
-    }
-
-    createdCount = createdTxns?.length || 0;
-    console.log(`[reconciliation] Created ${createdCount} new transactions`);
-
-    // Mark newly created transactions as cleared for this statement
-    if (createdTxns && createdTxns.length > 0) {
-      const newCleared = createdTxns.map((t) => ({
-        statement_id: statementId,
-        transaction_id: t.id,
-        match_method: 'pdf_created',
-      }));
-
-      const { error: clearError } = await supabaseAdmin
-        .from('statement_transactions')
-        .insert(newCleared);
-
-      if (clearError) {
-        console.error('[reconciliation] Failed to clear new transactions:', clearError);
-      }
     }
   }
 
